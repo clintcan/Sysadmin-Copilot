@@ -15,7 +15,7 @@ LangChain's `create_react_agent` implements this pattern. You hand it a model, a
 
 ## Building the Agent
 
-Here's the agent creation block from `agent.py` (lines 146–160):
+Here's the agent creation block from `agent.py` (lines 168–182):
 
 ```python
     # Initialize LLM and agent
@@ -46,7 +46,7 @@ Notice that `wrapped_tools` — not `ALL_TOOLS` directly — is passed to the ag
 
 ## System Prompt
 
-The system prompt is generated fresh on every startup (`agent.py:118–135`):
+The system prompt is generated fresh on every startup (`agent.py:140–157`):
 
 ```python
 def build_system_prompt():
@@ -77,7 +77,7 @@ The line "the safety layer will handle confirmation" is important: it tells the 
 
 ## Conversation History
 
-The `history` list is the core of multi-turn conversation (`agent.py:164`):
+The `history` list is the core of multi-turn conversation (`agent.py:186`):
 
 ```python
 history = []  # accumulates messages across turns for multi-step investigations
@@ -104,9 +104,96 @@ The `new` command resets history to `[]`, starting a fresh context. The `clear` 
 
 ---
 
+## Context Overflow Protection
+
+History grows with every turn: each round adds a human message, N tool-call messages, N tool-result messages (up to 8,000 chars each), and a final AI response. Left unchecked, this eventually exceeds any model's context window.
+
+Three guards prevent a crash (`agent.py:32–35`, `38–52`, `231–240`, `286–294`, `299–308`).
+
+**1. The limit constant** — a module-level cap, overridable via env var:
+
+```python
+MAX_HISTORY_CHARS = int(os.environ.get("MAX_HISTORY_CHARS", "100000"))
+```
+
+100,000 characters is roughly 25,000 tokens at 4 chars/token — well under the context window of all supported models.
+
+**2. `_count_history_chars()` — provider-aware measurement** (`agent.py:38–52`):
+
+```python
+def _count_history_chars(history: list) -> int:
+    """Estimate conversation history size in characters.
+
+    Handles both plain string content and Anthropic's list-of-blocks format
+    so the check works correctly across all three LLM providers.
+    """
+    total = 0
+    for msg in history:
+        if isinstance(msg.content, str):
+            total += len(msg.content)
+        elif isinstance(msg.content, list):
+            for block in msg.content:
+                if isinstance(block, dict):
+                    total += len(block.get("text", ""))
+    return total
+```
+
+Ollama and OpenAI return `str` content. Anthropic returns a list of typed blocks (`{"type": "text", "text": "..."}`, `{"type": "tool_use", ...}`, etc.). Both are measured correctly.
+
+**3. Pre-call guard** — checked after appending the user message, before touching the LLM (`agent.py:231–240`):
+
+```python
+        # Guard against context overflow before sending to the LLM
+        total_chars = _count_history_chars(history)
+        if total_chars > MAX_HISTORY_CHARS:
+            history.pop()
+            print(
+                f"\n\033[33mConversation history is too long "
+                f"({total_chars:,} chars, limit {MAX_HISTORY_CHARS:,}).\033[0m"
+            )
+            print("\033[33mType \033[1mnew\033[0m\033[33m to start a fresh conversation.\033[0m\n")
+            continue
+```
+
+`history.pop()` removes the just-appended `HumanMessage`, restoring history to its pre-turn state. `continue` skips the `try` block entirely — the LLM is never called.
+
+**4. Exception handler fallback** — catches context errors that slip past the guard (`agent.py:299–308`):
+
+```python
+        except Exception as e:
+            history.pop()  # discard the unanswered user message
+            err_str = str(e).lower()
+            if any(kw in err_str for kw in (
+                "context", "token", "length", "maximum", "too long", "limit exceeded"
+            )):
+                print("\n\033[31mError: conversation history is too long for this model.\033[0m")
+                print("\033[33mType \033[1mnew\033[0m\033[33m to start a fresh conversation.\033[0m\n")
+            else:
+                print(f"\n\033[31mError: {e}\033[0m\n")
+```
+
+The keyword list covers real error strings from all three providers. Non-context errors still show the raw exception.
+
+**5. `log_interaction` content guard** (`agent.py:286–294`):
+
+```python
+            last_content = history[-1].content
+            if isinstance(last_content, list):
+                last_content = " ".join(
+                    b.get("text", "") for b in last_content if isinstance(b, dict)
+                )
+            elif not isinstance(last_content, str):
+                last_content = "" if last_content is None else str(last_content)
+            audit.log_interaction(user_input, last_content)
+```
+
+`audit.log_interaction` calls `len(agent_response)`. The three branches guarantee it always receives a `str`: Anthropic list-of-blocks content is joined; `None` (a LangChain edge case) becomes `""`; anything else is coerced with `str()`.
+
+---
+
 ## Streaming
 
-The streaming loop (`agent.py:213–247`) uses LangGraph's dual stream mode:
+The streaming loop (`agent.py:247–276`) uses LangGraph's dual stream mode:
 
 ```python
 for mode, data in agent.stream(
@@ -158,7 +245,7 @@ The guard `not getattr(chunk, "tool_call_chunks", None)` is crucial. Without it,
 
 ## Ollama Connectivity Check
 
-Before starting the REPL, the code verifies Ollama is running (`agent.py:78–86`):
+Before starting the REPL, the code verifies Ollama is running (`agent.py:100–108`):
 
 ```python
         try:
@@ -178,7 +265,7 @@ This fails fast with a useful message instead of letting the first `agent.stream
 
 ## Built-in Commands
 
-Built-in commands are intercepted before the input is sent to the agent (`agent.py:176–204`). The pattern is a simple `if/elif` chain on the lowercased input:
+Built-in commands are intercepted before the input is sent to the agent (`agent.py:198–226`). The pattern is a simple `if/elif` chain on the lowercased input:
 
 ```python
 cmd = user_input.lower()
