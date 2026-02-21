@@ -289,6 +289,8 @@ def main():
                 last_content = " ".join(
                     b.get("text", "") for b in last_content if isinstance(b, dict)
                 )
+            elif not isinstance(last_content, str):
+                last_content = "" if last_content is None else str(last_content)
             audit.log_interaction(user_input, last_content)
 
         except KeyboardInterrupt:
