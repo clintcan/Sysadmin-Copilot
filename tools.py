@@ -10,6 +10,8 @@ To add a new tool:
   3. Add it to ALL_TOOLS at the bottom
 """
 
+import os
+import shlex
 import subprocess
 from typing import Optional
 
@@ -17,6 +19,18 @@ from langchain_core.tools import tool
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
+MAX_OUTPUT_CHARS = 8000
+
+# Allowed prefixes for read_log_file — extend via LOG_PATHS env var
+# Example: LOG_PATHS=/var/log,/run/log,/home/app/logs
+_log_paths_env = os.environ.get("LOG_PATHS", "")
+ALLOWED_LOG_PATHS: tuple = (
+    tuple(p.strip() for p in _log_paths_env.split(",") if p.strip())
+    if _log_paths_env
+    else ("/var/log",)
+)
+
 
 def run_cmd(cmd: list[str], timeout: int = 30) -> str:
     """Run a command and return stdout. Returns stderr on failure."""
@@ -30,6 +44,10 @@ def run_cmd(cmd: list[str], timeout: int = 30) -> str:
         output = result.stdout.strip()
         if result.returncode != 0 and result.stderr:
             output += f"\n[STDERR]: {result.stderr.strip()}"
+        if len(output) > MAX_OUTPUT_CHARS:
+            overflow = len(output) - MAX_OUTPUT_CHARS
+            suffix = f"\n[... {overflow} chars truncated]"
+            output = output[:MAX_OUTPUT_CHARS - len(suffix)] + suffix
         return output if output else "(no output)"
     except subprocess.TimeoutExpired:
         return f"[ERROR] Command timed out after {timeout}s"
@@ -89,13 +107,13 @@ def read_log_file(
         lines: Number of lines from the end (default 50).
         grep: Optional pattern to filter lines.
     """
-    # Security: only allow reading from /var/log
-    if not path.startswith("/var/log"):
-        return "[DENIED] Can only read files under /var/log"
+    # Security: only allow reading from approved log directories
+    if not any(path.startswith(p) for p in ALLOWED_LOG_PATHS):
+        return f"[DENIED] Can only read files under: {', '.join(ALLOWED_LOG_PATHS)}"
 
     if grep:
         # grep then tail
-        cmd = f"grep -i '{grep}' {path} | tail -n {lines}"
+        cmd = f"grep -i {shlex.quote(grep)} {shlex.quote(path)} | tail -n {lines}"
         return run_cmd(["bash", "-c", cmd])
     else:
         return run_cmd(["tail", "-n", str(lines), path])
@@ -109,14 +127,11 @@ def check_dmesg(lines: int = 30, level: Optional[str] = None) -> str:
         lines: Number of recent lines to show (default 30).
         level: Filter by level: emerg, alert, crit, err, warn, notice, info, debug.
     """
-    cmd = ["dmesg", "--time-format=reltime", "-T"]
+    cmd = "dmesg --time-format=reltime -T"
     if level:
-        cmd += ["-l", level]
-
-    output = run_cmd(cmd)
-    # Return only the last N lines
-    output_lines = output.strip().split("\n")
-    return "\n".join(output_lines[-lines:])
+        cmd += f" -l {shlex.quote(level)}"
+    cmd += f" | tail -n {lines}"
+    return run_cmd(["bash", "-c", cmd])
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -144,7 +159,8 @@ def check_directory_size(path: str) -> str:
         path: Directory path to check (e.g. '/var/log', '/home', '/tmp').
     """
     # Top 10 largest subdirectories
-    cmd = f"du -sh {path} 2>/dev/null && echo '---' && du -h --max-depth=1 {path} 2>/dev/null | sort -rh | head -10"
+    p = shlex.quote(path)
+    cmd = f"du -sh {p} 2>/dev/null && echo '---' && du -h --max-depth=1 {p} 2>/dev/null | sort -rh | head -10"
     return run_cmd(["bash", "-c", cmd])
 
 
@@ -348,7 +364,7 @@ def find_recent_files(
         minutes: Find files modified within this many minutes.
         count: Max number of files to return.
     """
-    cmd = f"find {path} -type f -mmin -{minutes} 2>/dev/null | head -n {count}"
+    cmd = f"find {shlex.quote(path)} -type f -mmin -{minutes} 2>/dev/null | head -n {count}"
     return run_cmd(["bash", "-c", cmd])
 
 

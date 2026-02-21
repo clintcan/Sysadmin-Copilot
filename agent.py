@@ -22,7 +22,7 @@ import sys
 import readline  # noqa: F401 — enables arrow keys in input()
 from datetime import datetime
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 
 from tools import ALL_TOOLS
@@ -51,6 +51,7 @@ HELP_TEXT = """
   help          Show this help message
   tools         List all available agent tools
   audit         Show the audit log for this session
+  new           Start a fresh conversation (clear history)
   clear         Clear the screen
   quit / exit   Exit the copilot
 """
@@ -150,6 +151,8 @@ def main():
 
     print()
 
+    history = []  # accumulates messages across turns for multi-step investigations
+
     while True:
         try:
             user_input = input("\033[32m❯ \033[0m").strip()
@@ -177,26 +180,68 @@ def main():
         elif cmd == "audit":
             audit.show()
             continue
+        elif cmd == "new":
+            history = []
+            print("\033[90mConversation history cleared.\033[0m\n")
+            continue
         elif cmd == "clear":
             os.system("clear")
             continue
 
         # Run the agent
+        history.append(HumanMessage(content=user_input))
         try:
-            result = agent.invoke(
-                {"messages": [HumanMessage(content=user_input)]}
-            )
+            print()
+            final_state = None
+            in_response = False
 
-            # Extract the final response
-            final_message = result["messages"][-1]
-            print(f"\n\033[97m{final_message.content}\033[0m\n")
+            for mode, data in agent.stream(
+                {"messages": history},
+                stream_mode=["messages", "values"],
+            ):
+                if mode == "messages":
+                    chunk, metadata = data
+                    node = metadata.get("langgraph_node", "")
+
+                    if node == "tools":
+                        # A tool just finished — show its name as a progress indicator
+                        if in_response:
+                            print("\033[0m", end="")
+                            in_response = False
+                        tool_name = getattr(chunk, "name", "tool")
+                        print(f"\033[90m  [{tool_name}]\033[0m")
+
+                    elif node == "agent":
+                        # Stream final-answer tokens; skip tool-call decision chunks
+                        if (
+                            isinstance(chunk.content, str)
+                            and chunk.content
+                            and not getattr(chunk, "tool_call_chunks", None)
+                        ):
+                            if not in_response:
+                                print("\033[97m", end="", flush=True)
+                                in_response = True
+                            print(chunk.content, end="", flush=True)
+
+                elif mode == "values":
+                    final_state = data
+
+            if in_response:
+                print("\033[0m\n")
+            else:
+                print()
+
+            # Persist the full thread (user + tool calls + assistant reply)
+            history = final_state["messages"]
 
             # Log the interaction
-            audit.log_interaction(user_input, final_message.content)
+            audit.log_interaction(user_input, history[-1].content)
 
         except KeyboardInterrupt:
+            history.pop()  # discard the unanswered user message
             print("\n\033[33mInterrupted. Ready for next question.\033[0m\n")
         except Exception as e:
+            history.pop()  # discard the unanswered user message
             print(f"\n\033[31mError: {e}\033[0m\n")
 
 

@@ -73,17 +73,18 @@ class AuditLogger:
             status = entry["status"]
             args_str = _format_args(entry["args"])
 
-            # Color-code status
+            # Color-code status — pad plain text first so ANSI codes don't skew alignment
+            status_padded = f"{status:<9}"
             if status == "BLOCKED":
-                status_str = f"\033[31m{status}\033[0m"
+                status_str = f"\033[31m{status_padded}\033[0m"
             elif status == "DENIED":
-                status_str = f"\033[33m{status}\033[0m"
+                status_str = f"\033[33m{status_padded}\033[0m"
             elif status == "CONFIRMED":
-                status_str = f"\033[32m{status}\033[0m"
+                status_str = f"\033[32m{status_padded}\033[0m"
             else:
-                status_str = f"\033[90m{status}\033[0m"
+                status_str = f"\033[90m{status_padded}\033[0m"
 
-            print(f"  \033[90m{ts}\033[0m  {status_str:<20}  \033[36m{tool}\033[0m  {args_str}")
+            print(f"  \033[90m{ts}\033[0m  {status_str}  \033[36m{tool}\033[0m  {args_str}")
 
         print(f"\n  Total commands: {len(self.entries)}")
         print(f"\033[33m{'─' * 60}\033[0m\n")

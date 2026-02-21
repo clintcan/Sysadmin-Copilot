@@ -10,8 +10,9 @@ Three permission levels:
   BLOCKED — Never allowed (rm, dd, shutdown, etc.)
 """
 
+import os
 from functools import wraps
-from langchain_core.tools import tool as lc_tool, BaseTool
+from langchain_core.tools import BaseTool
 
 
 # ─── Configuration ────────────────────────────────────────────────────────────
@@ -42,6 +43,12 @@ ALLOWED_SERVICES = {
     "postfix",
     # Add more as needed for your environment
 }
+
+# Extend the allowlist at runtime without editing this file:
+#   EXTRA_SERVICES=myapp,myworker python agent.py
+_extra_services = os.environ.get("EXTRA_SERVICES", "")
+if _extra_services:
+    ALLOWED_SERVICES |= {s.strip() for s in _extra_services.split(",") if s.strip()}
 
 # Arguments that are NEVER allowed in any tool
 BLOCKED_PATTERNS = [
@@ -82,10 +89,12 @@ class SafetyLayer:
 
         @wraps(original_func)
         def wrapped(*args, **kwargs):
-            # Check for blocked patterns in arguments
-            all_args = str(args) + str(kwargs)
+            # Check for blocked patterns against individual string argument values
+            # (avoids false matches against Python's dict/tuple repr syntax)
+            str_values = [v for v in args if isinstance(v, str)]
+            str_values += [v for v in kwargs.values() if isinstance(v, str)]
             for pattern in BLOCKED_PATTERNS:
-                if pattern in all_args:
+                if any(pattern in val for val in str_values):
                     msg = f"[BLOCKED] Dangerous pattern detected: '{pattern}'"
                     if audit_logger:
                         audit_logger.log_command(t.name, kwargs, blocked=True)
@@ -111,7 +120,7 @@ class SafetyLayer:
                 msg = (
                     f"[DENIED] Service '{service}' is not in the allowlist.\n"
                     f"Allowed services: {', '.join(sorted(self.allowed_services))}\n"
-                    f"Edit safety.py ALLOWED_SERVICES to add it."
+                    f"Set EXTRA_SERVICES={service} or edit safety.py ALLOWED_SERVICES to add it."
                 )
                 if audit_logger:
                     audit_logger.log_command(t.name, kwargs, blocked=True)
