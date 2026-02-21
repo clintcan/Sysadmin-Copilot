@@ -48,12 +48,13 @@ Type \033[33mhelp\033[0m for more commands, \033[33mquit\033[0m to exit.
 
 HELP_TEXT = """
 \033[33mAvailable commands:\033[0m
-  help          Show this help message
-  tools         List all available agent tools
-  audit         Show the audit log for this session
-  new           Start a fresh conversation (clear history)
-  clear         Clear the screen
-  quit / exit   Exit the copilot
+  help               Show this help message
+  tools              List all available agent tools
+  audit              Show the audit log for this session
+  audit last [N]     Show the last N past session(s) (default 1)
+  new                Start a fresh conversation (clear history)
+  clear              Clear the screen
+  quit / exit        Exit the copilot
 """
 
 
@@ -73,6 +74,15 @@ def get_llm():
         model = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
         base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
         print(f"\033[90mUsing Ollama ({model}) at {base_url}\033[0m")
+
+        try:
+            import urllib.request
+            urllib.request.urlopen(f"{base_url}/api/tags", timeout=3)
+        except Exception:
+            print(f"\033[31mError: Cannot connect to Ollama at {base_url}\033[0m")
+            print("Make sure Ollama is running: ollama serve")
+            sys.exit(1)
+
         return ChatOllama(model=model, base_url=base_url, temperature=0)
 
     elif provider == "openai":
@@ -177,8 +187,13 @@ def main():
                 print(f"  \033[36m{tool.name:<25}\033[0m {tool.description[:70]}")
             print()
             continue
-        elif cmd == "audit":
-            audit.show()
+        elif cmd == "audit" or cmd.startswith("audit "):
+            parts = cmd.split()
+            if len(parts) >= 2 and parts[1] == "last":
+                count = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 1
+                audit.show_last(count)
+            else:
+                audit.show()
             continue
         elif cmd == "new":
             history = []

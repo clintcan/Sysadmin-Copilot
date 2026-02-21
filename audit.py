@@ -89,6 +89,77 @@ class AuditLogger:
         print(f"\n  Total commands: {len(self.entries)}")
         print(f"\033[33m{'─' * 60}\033[0m\n")
 
+    def show_last(self, count: int = 1):
+        """Display audit entries from the most recent previous session(s)."""
+        log_dir = os.path.dirname(self.log_file)
+        try:
+            files = sorted(
+                [f for f in os.listdir(log_dir) if f.startswith("session_") and f.endswith(".jsonl")],
+                reverse=True,
+            )
+        except OSError:
+            print("\033[90mNo past sessions found.\033[0m\n")
+            return
+
+        current = os.path.basename(self.log_file)
+        past_files = [f for f in files if f != current]
+
+        if not past_files:
+            print("\033[90mNo past sessions found.\033[0m\n")
+            return
+
+        for fname in past_files[:count]:
+            fpath = os.path.join(log_dir, fname)
+            ts_str = fname[len("session_"):-len(".jsonl")]
+            try:
+                ts = datetime.strptime(ts_str, "%Y%m%d_%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                ts = ts_str
+
+            print(f"\n\033[33m{'─' * 60}\033[0m")
+            print(f"\033[33m  Past Session — {ts}\033[0m")
+            print(f"\033[33m  Log file: {fpath}\033[0m")
+            print(f"\033[33m{'─' * 60}\033[0m")
+
+            entries = []
+            try:
+                with open(fpath) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                entries.append(json.loads(line))
+                            except json.JSONDecodeError:
+                                pass
+            except OSError:
+                print("\033[90m  (could not read file)\033[0m\n")
+                continue
+
+            tool_entries = [e for e in entries if "tool" in e]
+            if not tool_entries:
+                print("\033[90m  No tool commands logged.\033[0m")
+            else:
+                for entry in tool_entries:
+                    ts_e = entry["timestamp"].split("T")[1][:8]
+                    tool = entry["tool"]
+                    status = entry["status"]
+                    args_str = _format_args(entry.get("args", {}))
+
+                    status_padded = f"{status:<9}"
+                    if status == "BLOCKED":
+                        status_str = f"\033[31m{status_padded}\033[0m"
+                    elif status == "DENIED":
+                        status_str = f"\033[33m{status_padded}\033[0m"
+                    elif status == "CONFIRMED":
+                        status_str = f"\033[32m{status_padded}\033[0m"
+                    else:
+                        status_str = f"\033[90m{status_padded}\033[0m"
+
+                    print(f"  \033[90m{ts_e}\033[0m  {status_str}  \033[36m{tool}\033[0m  {args_str}")
+
+            print(f"\n  Total commands: {len(tool_entries)}")
+            print(f"\033[33m{'─' * 60}\033[0m\n")
+
     def _write_to_file(self, entry: dict):
         """Append an entry to the persistent log file."""
         try:

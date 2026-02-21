@@ -343,11 +343,14 @@ def check_cron_jobs(user: Optional[str] = None) -> str:
     else:
         parts.append("=== System Cron (/etc/crontab) ===")
         parts.append(run_cmd(["cat", "/etc/crontab"]))
-        parts.append("\n=== Cron Directories ===")
-        for d in ["cron.d", "cron.daily", "cron.hourly"]:
+        parts.append("\n=== /etc/cron.d (file contents) ===")
+        parts.append(run_cmd(["bash", "-c",
+            "for f in /etc/cron.d/*; do [ -f \"$f\" ] && echo \"--- $f ---\" && cat \"$f\" && echo; done 2>/dev/null || echo '(empty)'"
+        ]))
+        for d in ["cron.daily", "cron.hourly"]:
             path = f"/etc/{d}"
-            parts.append(f"\n{path}:")
-            parts.append(run_cmd(["ls", "-la", path]))
+            parts.append(f"\n=== {path} (scripts) ===")
+            parts.append(run_cmd(["ls", "-1", path]))
     return "\n".join(parts)
 
 

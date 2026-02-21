@@ -79,12 +79,15 @@ Agent interprets results → responds in plain English
 
 ```
 sysadmin-copilot/
-├── agent.py          # Main entry point and REPL loop
-├── tools.py          # All agent tools (Linux CLI wrappers)
-├── safety.py         # Permission tiers, allowlists, confirmation prompts
-├── audit.py          # Command audit logging
-├── requirements.txt  # Python dependencies
-└── README.md         # This file
+├── agent.py           # Main entry point and REPL loop
+├── tools.py           # All agent tools (Linux CLI wrappers)
+├── safety.py          # Permission tiers, allowlists, confirmation prompts
+├── audit.py           # Command audit logging
+├── install.sh         # Automated service account installer
+├── sync-sudoers.sh    # Regenerate sudoers from safety.py ALLOWED_SERVICES
+├── requirements.txt   # Python dependencies
+├── docs/              # In-depth code walkthrough (8 chapters)
+└── README.md          # This file
 ```
 
 ## Available Tools
@@ -143,7 +146,7 @@ Every command is logged with timestamp, tool name, arguments, and status (OK / B
 
 ## Adding New Tools
 
-1. Add a function in `tools.py`:
+1. Add a function in `tools.py` with a `@tool` decorator and a clear docstring (the agent reads it to decide when to call the tool):
 
 ```python
 @tool
@@ -161,9 +164,11 @@ def check_docker_containers(all: bool = False) -> str:
 
 2. Add it to `ALL_TOOLS` at the bottom of `tools.py`.
 
-3. If it's a write action, add its name to `WRITE_TOOLS` in `safety.py`.
+3. If it's a write action (modifies system state), add its name to `WRITE_TOOLS` in `safety.py`. It will then require user confirmation and service allowlist checks automatically.
 
-That's it — the agent will automatically discover and use the new tool.
+4. If the write action calls `sudo`, run `sudo bash sync-sudoers.sh` to update the sudoers file.
+
+The safety and audit wrappers are applied automatically — no changes needed in `agent.py`. See [docs/08-extending.md](docs/08-extending.md) for a full walkthrough.
 
 ## Environment Variables
 
@@ -176,6 +181,18 @@ That's it — the agent will automatically discover and use the new tool.
 | `OPENAI_API_KEY` | — | OpenAI API key |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model name |
 | `ANTHROPIC_API_KEY` | — | Anthropic API key |
+| `EXTRA_SERVICES` | — | Comma-separated services to add to `ALLOWED_SERVICES` at runtime, e.g. `myapp,worker` |
+| `LOG_PATHS` | `/var/log` | Comma-separated path prefixes allowed for `read_log_file`, e.g. `/var/log,/run/log` |
+
+## Documentation
+
+The `docs/` folder contains an 8-chapter code walkthrough that explains every module in depth — architecture, design decisions, and annotated snippets from the real source:
+
+- [docs/README.md](docs/README.md) — table of contents
+- [01 — Introduction](docs/01-introduction.md) · [02 — Architecture](docs/02-architecture.md) · [03 — The Agent](docs/03-the-agent.md) · [04 — Tools](docs/04-tools.md)
+- [05 — Safety Layer](docs/05-safety-layer.md) · [06 — Audit Logger](docs/06-audit-logger.md) · [07 — Configuration](docs/07-configuration.md) · [08 — Extending](docs/08-extending.md)
+
+---
 
 ## Ideas for Extension
 
