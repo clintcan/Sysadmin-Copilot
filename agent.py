@@ -29,6 +29,28 @@ from tools import ALL_TOOLS
 from safety import SafetyLayer
 from audit import AuditLogger
 
+# History is trimmed before each agent call if it exceeds this character count.
+# Roughly 25k tokens at 4 chars/token — well under all supported model limits.
+# Override via MAX_HISTORY_CHARS env var if you use a model with a smaller window.
+MAX_HISTORY_CHARS = int(os.environ.get("MAX_HISTORY_CHARS", "100000"))
+
+
+def _count_history_chars(history: list) -> int:
+    """Estimate conversation history size in characters.
+
+    Handles both plain string content and Anthropic's list-of-blocks format
+    so the check works correctly across all three LLM providers.
+    """
+    total = 0
+    for msg in history:
+        if isinstance(msg.content, str):
+            total += len(msg.content)
+        elif isinstance(msg.content, list):
+            for block in msg.content:
+                if isinstance(block, dict):
+                    total += len(block.get("text", ""))
+    return total
+
 # ─── Banner ───────────────────────────────────────────────────────────────────
 
 BANNER = """
@@ -205,6 +227,18 @@ def main():
 
         # Run the agent
         history.append(HumanMessage(content=user_input))
+
+        # Guard against context overflow before sending to the LLM
+        total_chars = _count_history_chars(history)
+        if total_chars > MAX_HISTORY_CHARS:
+            history.pop()
+            print(
+                f"\n\033[33mConversation history is too long "
+                f"({total_chars:,} chars, limit {MAX_HISTORY_CHARS:,}).\033[0m"
+            )
+            print("\033[33mType \033[1mnew\033[0m\033[33m to start a fresh conversation.\033[0m\n")
+            continue
+
         try:
             print()
             final_state = None
@@ -249,15 +283,27 @@ def main():
             # Persist the full thread (user + tool calls + assistant reply)
             history = final_state["messages"]
 
-            # Log the interaction
-            audit.log_interaction(user_input, history[-1].content)
+            # Log the interaction — guard against Anthropic's list-of-blocks content format
+            last_content = history[-1].content
+            if isinstance(last_content, list):
+                last_content = " ".join(
+                    b.get("text", "") for b in last_content if isinstance(b, dict)
+                )
+            audit.log_interaction(user_input, last_content)
 
         except KeyboardInterrupt:
             history.pop()  # discard the unanswered user message
             print("\n\033[33mInterrupted. Ready for next question.\033[0m\n")
         except Exception as e:
             history.pop()  # discard the unanswered user message
-            print(f"\n\033[31mError: {e}\033[0m\n")
+            err_str = str(e).lower()
+            if any(kw in err_str for kw in (
+                "context", "token", "length", "maximum", "too long", "limit exceeded"
+            )):
+                print("\n\033[31mError: conversation history is too long for this model.\033[0m")
+                print("\033[33mType \033[1mnew\033[0m\033[33m to start a fresh conversation.\033[0m\n")
+            else:
+                print(f"\n\033[31mError: {e}\033[0m\n")
 
 
 if __name__ == "__main__":
