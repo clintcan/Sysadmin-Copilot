@@ -1,0 +1,139 @@
+"""
+Safety Layer for Sysadmin Copilot
+
+Enforces permission tiers so the agent can't do anything dangerous without
+explicit user confirmation. This is the most important part of the project.
+
+Three permission levels:
+  READ    — Always allowed (logs, status, disk usage)
+  WRITE   — Requires user confirmation (restart, stop services)
+  BLOCKED — Never allowed (rm, dd, shutdown, etc.)
+"""
+
+from functools import wraps
+from langchain_core.tools import tool as lc_tool, BaseTool
+
+
+# ─── Configuration ────────────────────────────────────────────────────────────
+
+# Tools that require user confirmation before execution
+WRITE_TOOLS = {
+    "restart_service",
+    "stop_service",
+}
+
+# Services that are allowed to be restarted/stopped
+# Add your services here — anything not listed will be blocked
+ALLOWED_SERVICES = {
+    "nginx",
+    "apache2",
+    "httpd",
+    "postgresql",
+    "mysql",
+    "mariadb",
+    "docker",
+    "redis",
+    "memcached",
+    "php-fpm",
+    "php8.1-fpm",
+    "gunicorn",
+    "uwsgi",
+    "cron",
+    "postfix",
+    # Add more as needed for your environment
+}
+
+# Arguments that are NEVER allowed in any tool
+BLOCKED_PATTERNS = [
+    "rm ", "rm -",
+    "dd ",
+    "mkfs",
+    "shutdown",
+    "reboot",
+    "poweroff",
+    "halt",
+    "init 0",
+    "init 6",
+    "> /dev/",
+    "chmod 777",
+    ":(){ :|:",  # fork bomb
+]
+
+
+class SafetyLayer:
+    """Wraps tools with confirmation prompts and allowlist checks."""
+
+    def __init__(self, allowed_services: set = None):
+        self.allowed_services = allowed_services or ALLOWED_SERVICES
+
+    def wrap_tools(self, tools: list, audit_logger=None) -> list:
+        """Wrap a list of tools with safety checks."""
+        wrapped = []
+        for t in tools:
+            if t.name in WRITE_TOOLS:
+                wrapped.append(self._wrap_write_tool(t, audit_logger))
+            else:
+                wrapped.append(self._wrap_read_tool(t, audit_logger))
+        return wrapped
+
+    def _wrap_read_tool(self, t: BaseTool, audit_logger) -> BaseTool:
+        """Wrap a read-only tool with audit logging."""
+        original_func = t.func
+
+        @wraps(original_func)
+        def wrapped(*args, **kwargs):
+            # Check for blocked patterns in arguments
+            all_args = str(args) + str(kwargs)
+            for pattern in BLOCKED_PATTERNS:
+                if pattern in all_args:
+                    msg = f"[BLOCKED] Dangerous pattern detected: '{pattern}'"
+                    if audit_logger:
+                        audit_logger.log_command(t.name, kwargs, blocked=True)
+                    return msg
+
+            if audit_logger:
+                audit_logger.log_command(t.name, kwargs)
+
+            return original_func(*args, **kwargs)
+
+        t.func = wrapped
+        return t
+
+    def _wrap_write_tool(self, t: BaseTool, audit_logger) -> BaseTool:
+        """Wrap a write tool with confirmation prompt and allowlist check."""
+        original_func = t.func
+
+        @wraps(original_func)
+        def wrapped(*args, **kwargs):
+            # Check service allowlist
+            service = kwargs.get("service", args[0] if args else None)
+            if service and service not in self.allowed_services:
+                msg = (
+                    f"[DENIED] Service '{service}' is not in the allowlist.\n"
+                    f"Allowed services: {', '.join(sorted(self.allowed_services))}\n"
+                    f"Edit safety.py ALLOWED_SERVICES to add it."
+                )
+                if audit_logger:
+                    audit_logger.log_command(t.name, kwargs, blocked=True)
+                return msg
+
+            # Prompt for confirmation
+            print(f"\n\033[33m⚠  The agent wants to: {t.name}({service})\033[0m")
+            try:
+                confirm = input("\033[33m   Allow this action? [y/N]: \033[0m").strip().lower()
+            except (KeyboardInterrupt, EOFError):
+                confirm = "n"
+
+            if confirm not in ("y", "yes"):
+                msg = "[CANCELLED] User denied the action."
+                if audit_logger:
+                    audit_logger.log_command(t.name, kwargs, denied=True)
+                return msg
+
+            if audit_logger:
+                audit_logger.log_command(t.name, kwargs, confirmed=True)
+
+            return original_func(*args, **kwargs)
+
+        t.func = wrapped
+        return t

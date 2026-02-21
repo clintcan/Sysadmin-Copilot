@@ -1,0 +1,14 @@
+# Core
+langchain-core>=0.3
+langgraph>=0.2
+
+# LLM providers — install the one(s) you need:
+
+# Option 1: Ollama (local, self-hosted) — recommended for Linux group demos
+langchain-ollama>=0.2
+
+# Option 2: OpenAI / OpenAI-compatible APIs
+# langchain-openai>=0.2
+
+# Option 3: Anthropic (Claude)
+# langchain-anthropic>=0.3
