@@ -9,7 +9,7 @@ ReAct stands for **Reason + Act**. It's a prompting strategy where the LLM alter
 
 After each action, the tool's output is appended to the conversation and the LLM reasons again. This continues until the LLM produces a final answer with no tool call.
 
-LangChain's `create_react_agent` implements this pattern. You hand it a model, a list of tools, and a system prompt. It handles the loop.
+LangChain's `create_agent` implements this pattern. You hand it a model, a list of tools, and a system prompt. It handles the loop.
 
 ---
 
@@ -28,17 +28,17 @@ Here's the agent creation block from `agent.py` (lines 168–182):
     # Wrap tools with safety and audit layers
     wrapped_tools = safety.wrap_tools(ALL_TOOLS, audit)
 
-    agent = create_react_agent(
+    agent = create_agent(
         model=llm,
         tools=wrapped_tools,
-        prompt=build_system_prompt(),
+        system_prompt=build_system_prompt(),
     )
 ```
 
 Three steps:
 1. **`get_llm()`** — creates the right LangChain chat model based on `LLM_PROVIDER`
 2. **`safety.wrap_tools()`** — wraps each tool with audit logging, blocked-pattern detection, and (for write tools) confirmation prompts
-3. **`create_react_agent()`** — wires the model and tools into a LangGraph state machine
+3. **`create_agent()`** — wires the model and tools into a LangGraph state machine
 
 Notice that `wrapped_tools` — not `ALL_TOOLS` directly — is passed to the agent. The safety and audit layers are injected at this point, not inside the tool functions themselves. This keeps `tools.py` clean.
 

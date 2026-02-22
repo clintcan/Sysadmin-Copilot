@@ -99,7 +99,7 @@ BLOCKED_PATTERNS = [
         return wrapped
 ```
 
-The returned list is what gets passed to `create_react_agent()`. The agent never sees unwrapped tools.
+The returned list is what gets passed to `create_agent()`. The agent never sees unwrapped tools.
 
 ---
 

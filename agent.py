@@ -23,7 +23,7 @@ import readline  # noqa: F401 — enables arrow keys in input()
 from datetime import datetime
 
 from langchain_core.messages import HumanMessage
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 
 from tools import ALL_TOOLS
 from safety import SafetyLayer
@@ -175,10 +175,10 @@ def main():
     # Wrap tools with safety and audit layers
     wrapped_tools = safety.wrap_tools(ALL_TOOLS, audit)
 
-    agent = create_react_agent(
+    agent = create_agent(
         model=llm,
         tools=wrapped_tools,
-        prompt=build_system_prompt(),
+        system_prompt=build_system_prompt(),
     )
 
     print()

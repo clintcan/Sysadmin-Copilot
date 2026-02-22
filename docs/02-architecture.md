@@ -117,7 +117,7 @@ Runtime paths created automatically:
 
 ## Why LangGraph Instead of a Simple Loop?
 
-LangGraph's `create_react_agent` provides the **ReAct loop** (Reason → Act → Reason → ...) out of the box:
+LangChain's `create_agent` provides the **ReAct loop** (Reason → Act → Reason → ...) out of the box:
 
 - The LLM is called to *reason* about what to do next
 - When it decides to call a tool, LangGraph *acts* by dispatching the call
