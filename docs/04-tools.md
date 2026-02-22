@@ -223,10 +223,34 @@ ALL_TOOLS = [
     check_logged_in_users,
     check_cron_jobs,
     find_recent_files,
+
+    # General purpose
+    run_command,
 ]
 ```
 
 `agent.py` imports `ALL_TOOLS` and passes it to `safety.wrap_tools()`. Adding a new tool is as simple as defining it in `tools.py` and appending it to this list. See Chapter 8 for a full walkthrough.
+
+---
+
+## The General-Purpose Escape Hatch
+
+The 21 specific tools cover common sysadmin tasks, but investigations often need follow-up commands that no dedicated tool anticipates — reading a `/proc` entry, checking a config file, or running `ip route show`.
+
+`run_command` (`tools.py:378–399`) fills that gap:
+
+```python
+@tool
+def run_command(command: str) -> str:
+    """Run a general-purpose shell command for ad-hoc investigation."""
+    return run_cmd(["bash", "-c", command])
+```
+
+It passes the command string through `bash -c`, reusing the same `run_cmd()` helper — 30-second timeout, 8000 char output cap, and error handling all apply.
+
+**Safety**: because `run_command` is not in `WRITE_TOOLS`, it gets wrapped by `_wrap_read_tool()`. The wrapper scans the `command` string against `BLOCKED_PATTERNS` before execution, so attempts to run `rm`, `dd`, `shutdown`, `reboot`, etc. are blocked. No `sudo` is used, so OS-level permissions further constrain what can run.
+
+The system prompt tells the agent to prefer `run_command` over suggesting commands for the user to run manually.
 
 ---
 

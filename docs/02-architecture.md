@@ -44,7 +44,7 @@
 | Module | Responsibility |
 |--------|---------------|
 | `agent.py` | Entry point. Initialises the LLM, creates the ReAct agent, runs the REPL loop, manages conversation history, streams output. |
-| `tools.py` | 21 Linux tools, each decorated with `@tool`. All call `run_cmd()` to execute CLI commands via subprocess. |
+| `tools.py` | 22 tools (21 specific + 1 general-purpose), each decorated with `@tool`. All call `run_cmd()` to execute CLI commands via subprocess. |
 | `safety.py` | Wraps every tool before it reaches the agent. READ tools get blocked-pattern detection; WRITE tools get allowlist and confirmation checks. |
 | `audit.py` | Logs every tool invocation (tool name, args, status) to an in-memory list and a persistent JSONL file. |
 

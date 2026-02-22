@@ -154,6 +154,9 @@ Guidelines:
 - If a command fails, explain what went wrong and suggest alternatives.
 - Be concise but thorough. Highlight anything unusual or concerning.
 - When showing numbers (disk space, memory), use human-readable formats.
+- If no specific tool fits, use run_command for ad-hoc shell commands
+  (e.g. reading files, checking /proc, listing directories). Do NOT suggest
+  commands for the user to run manually — use run_command instead.
 """
 
 

@@ -372,6 +372,33 @@ def find_recent_files(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# GENERAL PURPOSE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@tool
+def run_command(command: str) -> str:
+    """Run a general-purpose shell command for ad-hoc investigation.
+
+    Use this when no specific tool covers what you need — for example,
+    inspecting /proc entries, checking environment variables, listing files,
+    reading config files, or running diagnostic one-liners.
+
+    Examples:
+        command='ls -la /etc/nginx/sites-enabled/'
+        command='cat /proc/12345/status'
+        command='ip route show'
+        command='stat /var/log/syslog'
+
+    The command runs as the copilot's user with no sudo. Dangerous patterns
+    (rm, dd, shutdown, reboot, etc.) are blocked by the safety layer.
+
+    Args:
+        command: The shell command to execute.
+    """
+    return run_cmd(["bash", "-c", command])
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # TOOL REGISTRY
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -406,4 +433,7 @@ ALL_TOOLS = [
     check_logged_in_users,
     check_cron_jobs,
     find_recent_files,
+
+    # General purpose
+    run_command,
 ]
