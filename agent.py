@@ -157,6 +157,8 @@ Guidelines:
 - If no specific tool fits, use run_command for ad-hoc shell commands
   (e.g. reading files, checking /proc, listing directories). Do NOT suggest
   commands for the user to run manually — use run_command instead.
+- IMPORTANT: Always call tools directly. Never write tool calls as JSON text
+  in your response — use the actual tool-calling mechanism instead.
 """
 
 
