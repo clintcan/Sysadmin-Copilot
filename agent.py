@@ -55,7 +55,7 @@ def _count_history_chars(history: list) -> int:
 
 BANNER = """
 \033[32m╔══════════════════════════════════════════════════════════╗
-║           🖥️  Sysadmin Copilot v0.1                      ║
+║           🖥️  Sysadmin Copilot v0.1                       ║
 ║           AI-Powered Linux System Administration         ║
 ╚══════════════════════════════════════════════════════════╝\033[0m
 
