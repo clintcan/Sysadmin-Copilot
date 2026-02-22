@@ -212,7 +212,7 @@ for mode, data in agent.stream(
             tool_name = getattr(chunk, "name", "tool")
             print(f"\033[90m  [{tool_name}]\033[0m")
 
-        elif node == "agent":
+        elif node == "model":
             # Stream final-answer tokens; skip tool-call decision chunks
             if (
                 isinstance(chunk.content, str)
@@ -237,7 +237,7 @@ Two stream modes work together:
 
 The `langgraph_node` field tells us which part of the graph generated this chunk:
 - `"tools"` — a tool result message; print the tool name in grey
-- `"agent"` — an LLM output chunk; if it's a text token (not a tool-call decision), print it
+- `"model"` — an LLM output chunk; if it's a text token (not a tool-call decision), print it
 
 The guard `not getattr(chunk, "tool_call_chunks", None)` is crucial. Without it, the intermediate LLM output where it *decides* to call a tool would also be printed, exposing raw JSON to the user.
 

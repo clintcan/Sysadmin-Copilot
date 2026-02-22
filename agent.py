@@ -260,7 +260,7 @@ def main():
                         tool_name = getattr(chunk, "name", "tool")
                         print(f"\033[90m  [{tool_name}]\033[0m")
 
-                    elif node == "agent":
+                    elif node == "model":
                         # Stream final-answer tokens; skip tool-call decision chunks
                         if (
                             isinstance(chunk.content, str)
