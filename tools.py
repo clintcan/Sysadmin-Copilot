@@ -377,17 +377,11 @@ def find_recent_files(
 
 @tool
 def run_command(command: str) -> str:
-    """Run a general-purpose shell command for ad-hoc investigation.
+    """Run a shell command for ad-hoc investigation when no specific tool fits.
 
-    Use this when no specific tool covers what you need — for example,
-    inspecting /proc entries, checking environment variables, listing files,
-    reading config files, or running diagnostic one-liners.
-
-    Examples:
-        command='ls -la /etc/nginx/sites-enabled/'
-        command='cat /proc/12345/status'
-        command='ip route show'
-        command='stat /var/log/syslog'
+    Useful for reading files, inspecting /proc, listing directories, checking
+    configs, running diagnostic one-liners, killing processes, and anything
+    else not covered by the dedicated tools.
 
     The command runs as the copilot's user with no sudo. Dangerous patterns
     (rm, dd, shutdown, reboot, etc.) are blocked by the safety layer.

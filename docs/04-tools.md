@@ -237,12 +237,12 @@ ALL_TOOLS = [
 
 The 21 specific tools cover common sysadmin tasks, but investigations often need follow-up commands that no dedicated tool anticipates — reading a `/proc` entry, checking a config file, or running `ip route show`.
 
-`run_command` (`tools.py:378–399`) fills that gap:
+`run_command` (`tools.py:378–393`) fills that gap:
 
 ```python
 @tool
 def run_command(command: str) -> str:
-    """Run a general-purpose shell command for ad-hoc investigation."""
+    """Run a shell command for ad-hoc investigation when no specific tool fits."""
     return run_cmd(["bash", "-c", command])
 ```
 
