@@ -383,6 +383,10 @@ def run_command(command: str) -> str:
     configs, running diagnostic one-liners, killing processes, and quick
     web lookups with curl.
 
+    Each call runs in a fresh shell — directory changes do not persist between
+    calls. Use absolute paths, or chain commands in one call with && (e.g.
+    'cd /var/log && ls -la' instead of separate cd and ls calls).
+
     The command runs as the copilot's user with no sudo. Dangerous patterns
     (rm, dd, shutdown, reboot, etc.) are blocked by the safety layer.
 
