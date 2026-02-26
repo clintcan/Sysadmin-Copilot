@@ -115,8 +115,12 @@ def get_llm():
             sys.exit(1)
 
         model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-        print(f"\033[90mUsing OpenAI ({model})\033[0m")
-        return ChatOpenAI(model=model, temperature=0)
+        base_url = os.environ.get("OPENAI_BASE_URL")
+        if base_url:
+            print(f"\033[90mUsing OpenAI-compatible ({model}) at {base_url}\033[0m")
+        else:
+            print(f"\033[90mUsing OpenAI ({model})\033[0m")
+        return ChatOpenAI(model=model, base_url=base_url, temperature=0)
 
     elif provider == "anthropic":
         try:

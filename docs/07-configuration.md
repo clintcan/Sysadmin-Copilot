@@ -13,9 +13,14 @@ LLM_PROVIDER=openai OPENAI_API_KEY=sk-... python agent.py
 
 # Anthropic
 LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... python agent.py
+
+# OpenAI-compatible endpoint (LM Studio, vLLM, LocalAI, etc.)
+LLM_PROVIDER=openai OPENAI_BASE_URL=http://localhost:1234/v1 OPENAI_MODEL=my-model OPENAI_API_KEY=not-needed python agent.py
 ```
 
 Switching providers requires no code changes. The `get_llm()` function in `agent.py` reads `LLM_PROVIDER` and returns the appropriate LangChain chat model object. The rest of the code is provider-agnostic.
+
+When `OPENAI_BASE_URL` is set, the startup message shows the endpoint: `Using OpenAI-compatible (my-model) at http://localhost:1234/v1`.
 
 ---
 
@@ -27,6 +32,7 @@ Switching providers requires no code changes. The `get_llm()` function in `agent
 | `OLLAMA_MODEL` | `llama3.1:8b` | Ollama model name |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
 | `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model name |
+| `OPENAI_BASE_URL` | — | OpenAI-compatible endpoint URL, e.g. `http://localhost:1234/v1` |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model name |
 | `EXTRA_SERVICES` | — | Comma-separated services to add to `ALLOWED_SERVICES` at runtime |
 | `LOG_PATHS` | `/var/log` | Comma-separated path prefixes allowed for `read_log_file` |

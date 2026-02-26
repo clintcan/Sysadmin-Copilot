@@ -380,8 +380,8 @@ def run_command(command: str) -> str:
     """Run a shell command for ad-hoc investigation when no specific tool fits.
 
     Useful for reading files, inspecting /proc, listing directories, checking
-    configs, running diagnostic one-liners, killing processes, and anything
-    else not covered by the dedicated tools.
+    configs, running diagnostic one-liners, killing processes, and quick
+    web lookups with curl.
 
     The command runs as the copilot's user with no sudo. Dangerous patterns
     (rm, dd, shutdown, reboot, etc.) are blocked by the safety layer.

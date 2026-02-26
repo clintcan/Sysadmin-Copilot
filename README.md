@@ -51,6 +51,13 @@ pip install langchain-anthropic
 LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... python agent.py
 ```
 
+**Option C: OpenAI-compatible endpoint (LM Studio, vLLM, LocalAI, etc.)**
+
+```bash
+pip install langchain-openai
+LLM_PROVIDER=openai OPENAI_BASE_URL=http://localhost:1234/v1 OPENAI_MODEL=my-model OPENAI_API_KEY=not-needed python agent.py
+```
+
 ### 3. Talk to your server
 
 ```
@@ -115,6 +122,7 @@ sysadmin-copilot/
 | **Users** | `check_logged_in_users` | who + recent logins |
 | | `check_cron_jobs` | Cron job listings |
 | | `find_recent_files` | Recently modified files |
+| **General** | `run_command` | Run any shell command for ad-hoc investigation |
 
 ⚠️ = Requires user confirmation (write action)
 
@@ -178,6 +186,7 @@ The safety and audit wrappers are applied automatically — no changes needed in
 | `OLLAMA_MODEL` | `llama3.1:8b` | Ollama model name |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
 | `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model name |
+| `OPENAI_BASE_URL` | — | OpenAI-compatible endpoint URL (e.g. `http://localhost:1234/v1`) |
 | `OPENAI_API_KEY` | — | OpenAI API key |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model name |
 | `ANTHROPIC_API_KEY` | — | Anthropic API key |
