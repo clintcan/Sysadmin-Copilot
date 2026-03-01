@@ -230,6 +230,7 @@ ALL_TOOLS = [
     update_packages,
 
     # General purpose
+    change_directory,
     run_command,
     search_web,
 ]

@@ -787,6 +787,29 @@ def search_web(query: str, max_results: int = 5) -> str:
 
 
 @tool
+def change_directory(path: str) -> str:
+    """Change the working directory for all subsequent tool calls.
+
+    Use this when the user asks to 'cd' somewhere or wants to work in a
+    specific directory. All future run_command calls and other tools that
+    launch subprocesses will run from this directory.
+
+    Args:
+        path: Directory path to change to (e.g. '/var/log', '/etc/nginx', '~').
+    """
+    expanded = os.path.expanduser(path)
+    try:
+        os.chdir(expanded)
+        return f"Changed directory to: {os.getcwd()}"
+    except FileNotFoundError:
+        return f"[ERROR] Directory not found: {expanded}"
+    except PermissionError:
+        return f"[ERROR] Permission denied: {expanded}"
+    except Exception as e:
+        return f"[ERROR] {e}"
+
+
+@tool
 def run_command(command: str) -> str:
     """Run a shell command for ad-hoc investigation when no specific tool fits.
 
@@ -794,9 +817,9 @@ def run_command(command: str) -> str:
     configs, running diagnostic one-liners, killing processes, and quick
     web lookups with curl.
 
-    Each call runs in a fresh shell — directory changes do not persist between
-    calls. Use absolute paths, or chain commands in one call with && (e.g.
-    'cd /var/log && ls -la' instead of separate cd and ls calls).
+    To change the working directory persistently, use the change_directory tool
+    instead of running 'cd' here (which only affects a single call). You can
+    also chain commands with && (e.g. 'cd /var/log && ls -la').
 
     The command runs as the copilot's user with no sudo. Dangerous patterns
     (rm, dd, shutdown, reboot, etc.) are blocked by the safety layer.
@@ -849,6 +872,7 @@ ALL_TOOLS = [
     update_packages,
 
     # General purpose
+    change_directory,
     run_command,
     search_web,
 ]

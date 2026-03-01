@@ -125,7 +125,8 @@ sysadmin-copilot/
 | **Security** | `system_audit` | CIS-aligned security audit (SSH, perms, firewall, kernel) |
 | | `check_outdated_packages` | Outdated packages across apt/dnf/yum/snap/flatpak |
 | | `update_packages` | Install available package updates ⚠️ |
-| **General** | `run_command` | Run any shell command for ad-hoc investigation |
+| **General** | `change_directory` | Change working directory for subsequent tool calls |
+| | `run_command` | Run any shell command for ad-hoc investigation |
 | | `search_web` | Web search via DuckDuckGo for docs, CVEs, troubleshooting |
 
 ⚠️ = Requires user confirmation (write action)
