@@ -18,6 +18,7 @@ Usage:
 """
 
 import os
+import subprocess
 import sys
 import readline  # noqa: F401 — enables arrow keys in input()
 from datetime import datetime
@@ -55,7 +56,7 @@ def _count_history_chars(history: list) -> int:
 
 BANNER = """
 \033[32m╔══════════════════════════════════════════════════════════╗
-║           🖥️  Sysadmin Copilot v0.1                       ║
+║           🖥️  Sysadmin Copilot v0.1                      ║
 ║           AI-Powered Linux System Administration         ║
 ╚══════════════════════════════════════════════════════════╝\033[0m
 
@@ -90,8 +91,13 @@ def get_llm():
         try:
             from langchain_ollama import ChatOllama
         except ImportError:
-            print("\033[31mError: pip install langchain-ollama\033[0m")
-            sys.exit(1)
+            print("\033[33mInstalling langchain-ollama...\033[0m")
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "langchain-ollama"])
+                from langchain_ollama import ChatOllama
+            except (subprocess.CalledProcessError, ImportError) as e:
+                print(f"\033[31mFailed to install langchain-ollama: {e}\033[0m")
+                sys.exit(1)
 
         model = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
         base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -111,8 +117,13 @@ def get_llm():
         try:
             from langchain_openai import ChatOpenAI
         except ImportError:
-            print("\033[31mError: pip install langchain-openai\033[0m")
-            sys.exit(1)
+            print("\033[33mInstalling langchain-openai...\033[0m")
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "langchain-openai"])
+                from langchain_openai import ChatOpenAI
+            except (subprocess.CalledProcessError, ImportError) as e:
+                print(f"\033[31mFailed to install langchain-openai: {e}\033[0m")
+                sys.exit(1)
 
         model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
         base_url = os.environ.get("OPENAI_BASE_URL")
@@ -126,8 +137,13 @@ def get_llm():
         try:
             from langchain_anthropic import ChatAnthropic
         except ImportError:
-            print("\033[31mError: pip install langchain-anthropic\033[0m")
-            sys.exit(1)
+            print("\033[33mInstalling langchain-anthropic...\033[0m")
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "langchain-anthropic"])
+                from langchain_anthropic import ChatAnthropic
+            except (subprocess.CalledProcessError, ImportError) as e:
+                print(f"\033[31mFailed to install langchain-anthropic: {e}\033[0m")
+                sys.exit(1)
 
         model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
         print(f"\033[90mUsing Anthropic ({model})\033[0m")
