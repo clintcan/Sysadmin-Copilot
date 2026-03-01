@@ -122,7 +122,10 @@ sysadmin-copilot/
 | **Users** | `check_logged_in_users` | who + recent logins |
 | | `check_cron_jobs` | Cron job listings |
 | | `find_recent_files` | Recently modified files |
+| **Security** | `system_audit` | CIS-aligned security audit (SSH, perms, firewall, kernel) |
+| | `check_outdated_packages` | Outdated packages across apt/dnf/yum/snap/flatpak |
 | **General** | `run_command` | Run any shell command for ad-hoc investigation |
+| | `search_web` | Web search via DuckDuckGo for docs, CVEs, troubleshooting |
 
 ⚠️ = Requires user confirmation (write action)
 

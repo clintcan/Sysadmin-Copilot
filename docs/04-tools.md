@@ -242,7 +242,7 @@ ALL_TOOLS = [
 
 The 23 specific tools cover common sysadmin tasks, but investigations often need follow-up commands that no dedicated tool anticipates — reading a `/proc` entry, checking a config file, or running `ip route show`.
 
-`run_command` (`tools.py:378–393`) fills that gap:
+`run_command` (`tools.py:734–752`) fills that gap:
 
 ```python
 @tool
