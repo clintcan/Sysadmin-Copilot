@@ -372,8 +372,244 @@ def find_recent_files(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# SECURITY AUDIT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@tool
+def system_audit(scope: str = "quick") -> str:
+    """Run a security audit aligned with common CIS benchmarks.
+
+    Checks SSH hardening, file permissions, user accounts, firewall status,
+    kernel parameters, and open ports. All checks are read-only.
+
+    Args:
+        scope: 'quick' for essential checks (~10-15s), or 'full' to add
+               SUID/SGID scan, world-writable files, running services,
+               auto-updates, failed logins, and SELinux/AppArmor (~30s).
+    """
+    timeout = 60 if scope == "full" else 30
+    sections: list[str] = []
+
+    def _run(cmd: str, tm: int = timeout) -> str:
+        return run_cmd(["bash", "-c", cmd], timeout=tm)
+
+    def _flag(condition: bool, ok_msg: str, warn_msg: str) -> str:
+        return f"[OK] {ok_msg}" if condition else f"[!] {warn_msg}"
+
+    # --- SSH Hardening ---
+    ssh_lines: list[str] = []
+    sshd_cfg = "/etc/ssh/sshd_config"
+    ssh_checks = {
+        "PermitRootLogin": ("no", "Root login disabled", "Root login NOT disabled"),
+        "PasswordAuthentication": ("no", "Password auth disabled", "Password auth enabled"),
+        "X11Forwarding": ("no", "X11 forwarding disabled", "X11 forwarding enabled"),
+        "PermitEmptyPasswords": ("no", "Empty passwords denied", "Empty passwords allowed"),
+        "Protocol": ("2", "SSH protocol 2", "SSH protocol not set to 2"),
+    }
+    for key, (expected, ok, warn) in ssh_checks.items():
+        val = _run(f"grep -i '^\\s*{key}' {sshd_cfg} 2>/dev/null | tail -1 | awk '{{print $2}}'")
+        if val == "(no output)":
+            ssh_lines.append(f"[!] {key} not explicitly set (check defaults)")
+        else:
+            ssh_lines.append(_flag(val.strip().lower() == expected, ok, f"{warn} ({key} = {val.strip()})"))
+    sections.append("=== SSH Hardening ===\n" + "\n".join(ssh_lines))
+
+    # --- Sensitive File Permissions ---
+    perm_lines: list[str] = []
+    perm_checks = {
+        "/etc/passwd":  ("644", False),
+        "/etc/shadow":  ("640", True),
+        "/etc/group":   ("644", False),
+        "/etc/sudoers": ("440", True),
+    }
+    for fpath, (expected, root_only) in perm_checks.items():
+        raw = _run(f"stat -c '%a %U:%G' {fpath} 2>/dev/null")
+        if raw.startswith("[ERROR]") or raw == "(no output)":
+            perm_lines.append(f"[!] Cannot stat {fpath}")
+            continue
+        parts = raw.split()
+        mode = parts[0] if parts else "?"
+        owner = parts[1] if len(parts) > 1 else "?"
+        ok = (mode == expected)
+        if root_only:
+            ok = ok and owner.startswith("root:")
+        perm_lines.append(_flag(ok, f"{fpath} ({mode} {owner})",
+                                f"{fpath} ({mode} {owner}) — expected {expected}"))
+    sections.append("=== Sensitive File Permissions ===\n" + "\n".join(perm_lines))
+
+    # --- User Accounts ---
+    user_lines: list[str] = []
+    uid0 = _run("awk -F: '$3 == 0 {print $1}' /etc/passwd")
+    uid0_users = [u for u in uid0.splitlines() if u.strip() and u != "(no output)"]
+    if not uid0_users:
+        user_lines.append("[!] Could not read /etc/passwd to check UID 0 users")
+    else:
+        user_lines.append(_flag(uid0_users == ["root"],
+                                "Only root has UID 0",
+                                f"UID 0 users: {', '.join(uid0_users)}"))
+    empty_pw = _run("awk -F: '$2 == \"\" {print $1}' /etc/shadow 2>/dev/null")
+    if empty_pw == "(no output)" or not empty_pw.strip():
+        user_lines.append("[OK] No users with empty passwords")
+    else:
+        user_lines.append(f"[!] Users with empty passwords: {empty_pw.strip()}")
+    sudo_members = _run("getent group sudo wheel 2>/dev/null | cut -d: -f4")
+    user_lines.append(f"sudo/wheel members: {sudo_members.strip() if sudo_members != '(no output)' else 'N/A'}")
+    sections.append("=== User Accounts ===\n" + "\n".join(user_lines))
+
+    # --- Firewall Status ---
+    fw_lines: list[str] = []
+    ufw = _run("ufw status 2>/dev/null")
+    if "inactive" in ufw.lower():
+        fw_lines.append("[!] UFW is inactive")
+    elif "active" in ufw.lower():
+        fw_lines.append("[OK] UFW is active")
+        fw_lines.append(ufw)
+    else:
+        ipt = _run("iptables -L -n 2>/dev/null | head -20")
+        if "Chain" in ipt:
+            fw_lines.append("[OK] iptables rules present")
+            fw_lines.append(ipt)
+        else:
+            fw_lines.append("[!] No firewall detected (ufw/iptables)")
+    sections.append("=== Firewall Status ===\n" + "\n".join(fw_lines))
+
+    # --- Kernel Hardening (sysctl) ---
+    sysctl_lines: list[str] = []
+    sysctl_checks = {
+        "net.ipv4.ip_forward":                     ("0", "IP forwarding disabled", "IP forwarding enabled"),
+        "net.ipv4.tcp_syncookies":                  ("1", "SYN cookies enabled", "SYN cookies disabled"),
+        "kernel.randomize_va_space":                ("2", "ASLR fully enabled", "ASLR not fully enabled"),
+        "net.ipv4.conf.all.rp_filter":              ("1", "Reverse path filtering enabled", "Reverse path filtering disabled"),
+        "net.ipv4.conf.all.accept_redirects":       ("0", "ICMP redirects rejected", "ICMP redirects accepted"),
+        "net.ipv4.conf.all.send_redirects":         ("0", "Send redirects disabled", "Send redirects enabled"),
+        "net.ipv4.conf.all.accept_source_route":    ("0", "Source routing disabled", "Source routing enabled"),
+    }
+    for param, (expected, ok, warn) in sysctl_checks.items():
+        val = _run(f"sysctl -n {param} 2>/dev/null").strip()
+        if val == "(no output)":
+            sysctl_lines.append(f"[!] {param}: N/A")
+        else:
+            sysctl_lines.append(_flag(val == expected, f"{param} = {val}", f"{warn} ({param} = {val})"))
+    sections.append("=== Kernel Hardening ===\n" + "\n".join(sysctl_lines))
+
+    # --- Open Listening Ports ---
+    ports = _run("ss -tulnp 2>/dev/null")
+    sections.append("=== Open Listening Ports ===\n" + ports)
+
+    # ── Full scope only ──────────────────────────────────────────────────
+    if scope == "full":
+        # SUID binaries
+        suid = _run("find / -xdev -perm -4000 -type f "
+                     "-not -path '/proc/*' -not -path '/sys/*' "
+                     "-not -path '/dev/*' -not -path '/run/*' "
+                     "2>/dev/null | head -20", tm=60)
+        sections.append("=== SUID Binaries ===\n" + suid)
+
+        # SGID binaries
+        sgid = _run("find / -xdev -perm -2000 -type f "
+                     "-not -path '/proc/*' -not -path '/sys/*' "
+                     "-not -path '/dev/*' -not -path '/run/*' "
+                     "2>/dev/null | head -20", tm=60)
+        sections.append("=== SGID Binaries ===\n" + sgid)
+
+        # World-writable files
+        ww = _run("find / -xdev -perm -002 -type f "
+                   "-not -path '/proc/*' -not -path '/sys/*' "
+                   "-not -path '/dev/*' -not -path '/run/*' "
+                   "2>/dev/null | head -20", tm=60)
+        sections.append("=== World-Writable Files ===\n" + (ww if ww != "(no output)" else "[OK] None found"))
+
+        # Running / enabled services
+        enabled_svc = _run("systemctl list-unit-files --type=service --state=enabled --no-pager 2>/dev/null | head -30")
+        sections.append("=== Enabled Services ===\n" + enabled_svc)
+
+        # Automatic updates
+        auto_lines: list[str] = []
+        ua = _run("systemctl is-enabled unattended-upgrades 2>/dev/null")
+        if "enabled" in ua.lower():
+            auto_lines.append("[OK] unattended-upgrades enabled")
+        else:
+            auto_lines.append("[!] unattended-upgrades not enabled or not installed")
+        sections.append("=== Automatic Updates ===\n" + "\n".join(auto_lines))
+
+        # Failed logins (last 24h)
+        failed = _run("journalctl _COMM=sshd --since '24 hours ago' --no-pager 2>/dev/null "
+                       "| grep -i 'failed\\|invalid' | tail -15")
+        sections.append("=== Failed SSH Logins (24h) ===\n" +
+                        (failed if failed != "(no output)" else "[OK] None found"))
+
+        # SELinux / AppArmor
+        mac_lines: list[str] = []
+        se = _run("getenforce 2>/dev/null")
+        if se != "(no output)" and not se.startswith("[ERROR]"):
+            mac_lines.append(f"SELinux: {se.strip()}")
+        aa = _run("cat /sys/module/apparmor/parameters/enabled 2>/dev/null")
+        if aa.strip() == "Y":
+            mac_lines.append("[OK] AppArmor enabled")
+        elif se == "(no output)" or se.startswith("[ERROR]"):
+            mac_lines.append("[!] Neither SELinux nor AppArmor detected")
+        sections.append("=== SELinux / AppArmor ===\n" + "\n".join(mac_lines))
+
+    max_chars = 16000  # audit reports need more room than typical tool output
+    output = "\n\n".join(sections)
+    if len(output) > max_chars:
+        overflow = len(output) - max_chars
+        suffix = f"\n[... {overflow} chars truncated]"
+        output = output[:max_chars - len(suffix)] + suffix
+    return output
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # GENERAL PURPOSE
 # ═══════════════════════════════════════════════════════════════════════════════
+
+@tool
+def search_web(query: str, max_results: int = 5) -> str:
+    """Search the web using DuckDuckGo. Use this tool whenever the user asks
+    about anything that requires up-to-date information from the internet,
+    including news, current events, error messages, documentation,
+    troubleshooting guides, CVEs, or any topic you don't have current data on.
+
+    IMPORTANT: Always use this tool instead of relying on training data when
+    the user asks for recent/latest/current information or news.
+
+    Args:
+        query: Search query string (e.g. 'latest tech news',
+               'nginx 502 bad gateway fix', 'CVE-2024-1234').
+        max_results: Number of results to return (default 5, max 10).
+    """
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        import sys
+        print("\033[33mInstalling ddgs...\033[0m")
+        try:
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", "ddgs"]
+            )
+            from ddgs import DDGS
+        except (subprocess.CalledProcessError, ImportError) as e:
+            return f"[ERROR] Failed to install ddgs: {e}"
+
+    import warnings
+    max_results = min(max_results, 10)
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Impersonate")
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=max_results))
+        if not results:
+            return f"No results found for: {query}"
+        lines = []
+        for i, r in enumerate(results, 1):
+            lines.append(f"{i}. {r['title']}")
+            lines.append(f"   {r['href']}")
+            lines.append(f"   {r['body']}")
+            lines.append("")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"[ERROR] Search failed: {e}"
+
 
 @tool
 def run_command(command: str) -> str:
@@ -432,6 +668,10 @@ ALL_TOOLS = [
     check_cron_jobs,
     find_recent_files,
 
+    # Security audit
+    system_audit,
+
     # General purpose
     run_command,
+    search_web,
 ]
