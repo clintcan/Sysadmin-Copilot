@@ -18,6 +18,7 @@ Usage:
 """
 
 import os
+import pwd
 import subprocess
 import sys
 import readline  # noqa: F401 — enables arrow keys in input()
@@ -186,6 +187,14 @@ Guidelines:
 
 def main():
     print(BANNER)
+
+    # We will get the current user and change directory there if it is sysadmin-copilot
+    username = pwd.getpwuid(os.getuid())[0]
+
+    # check if username is sysadmin-copilot
+    if username == 'sysadmin-copilot':
+        print("Changing home directory to sysadmin-copilot")
+        os.chdir("/home/sysadmin-copilot")
 
     audit = AuditLogger()
     safety = SafetyLayer()
