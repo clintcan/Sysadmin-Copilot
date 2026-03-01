@@ -559,6 +559,126 @@ def system_audit(scope: str = "quick") -> str:
     return output
 
 
+@tool
+def check_outdated_packages() -> str:
+    """Check for outdated system packages across all detected package managers.
+
+    Auto-detects which package managers are installed (apt, dnf, yum, snap,
+    flatpak) and reports available updates for each. Security updates are
+    flagged with [!] where detectable. All checks are read-only — nothing
+    is installed or upgraded.
+    """
+    timeout = 30
+    sections: list[str] = []
+
+    def _run(cmd: str, tm: int = timeout) -> str:
+        return run_cmd(["bash", "-c", cmd], timeout=tm)
+
+    def _has(binary: str) -> bool:
+        return _run(f"which {binary} 2>/dev/null") != "(no output)"
+
+    # --- apt (Debian/Ubuntu) ---
+    if _has("apt"):
+        apt_lines: list[str] = []
+        raw = _run("apt list --upgradable 2>/dev/null | tail -n +2 | head -50")
+        if raw == "(no output)" or not raw.strip():
+            apt_lines.append("[OK] All packages are up to date")
+        else:
+            pkgs = [l for l in raw.splitlines() if l.strip()]
+            total = len(pkgs)
+            # Security updates contain the distro security pocket
+            sec_pkgs = [l for l in pkgs if "-security" in l.lower()]
+            sec_count = len(sec_pkgs)
+            if sec_count:
+                apt_lines.append(f"[!] {sec_count} security update(s) available")
+            apt_lines.append(f"{total} package(s) can be upgraded:")
+            apt_lines.append(raw)
+        sections.append("=== apt ===\n" + "\n".join(apt_lines))
+    else:
+        sections.append("=== apt ===\nN/A (not installed)")
+
+    # --- dnf (Fedora/RHEL 8+) ---
+    has_dnf = _has("dnf")
+    if has_dnf:
+        dnf_lines: list[str] = []
+        # dnf check-update exits 100 when updates are available, 0 when none
+        raw = _run("dnf check-update 2>/dev/null | tail -n +3 | head -50")
+        if raw == "(no output)" or not raw.strip():
+            dnf_lines.append("[OK] All packages are up to date")
+        else:
+            pkgs = [l for l in raw.splitlines() if l.strip()]
+            total = len(pkgs)
+            dnf_lines.append(f"{total} package(s) can be upgraded:")
+            dnf_lines.append(raw)
+        # Security updates
+        sec_raw = _run("dnf updateinfo list security 2>/dev/null | tail -n +2 | head -50")
+        if sec_raw != "(no output)" and sec_raw.strip():
+            sec_pkgs = [l for l in sec_raw.splitlines() if l.strip()]
+            if sec_pkgs:
+                dnf_lines.insert(0, f"[!] {len(sec_pkgs)} security update(s) available")
+        sections.append("=== dnf ===\n" + "\n".join(dnf_lines))
+    else:
+        sections.append("=== dnf ===\nN/A (not installed)")
+
+    # --- yum (RHEL 7/CentOS) — only if dnf is absent ---
+    if not has_dnf and _has("yum"):
+        yum_lines: list[str] = []
+        raw = _run("yum check-update 2>/dev/null | tail -n +3 | head -50")
+        if raw == "(no output)" or not raw.strip():
+            yum_lines.append("[OK] All packages are up to date")
+        else:
+            pkgs = [l for l in raw.splitlines() if l.strip()]
+            total = len(pkgs)
+            yum_lines.append(f"{total} package(s) can be upgraded:")
+            yum_lines.append(raw)
+        sec_raw = _run("yum updateinfo list security 2>/dev/null | tail -n +2 | head -50")
+        if sec_raw != "(no output)" and sec_raw.strip():
+            sec_pkgs = [l for l in sec_raw.splitlines() if l.strip()]
+            if sec_pkgs:
+                yum_lines.insert(0, f"[!] {len(sec_pkgs)} security update(s) available")
+        sections.append("=== yum ===\n" + "\n".join(yum_lines))
+    elif not has_dnf:
+        sections.append("=== yum ===\nN/A (not installed)")
+
+    # --- snap ---
+    if _has("snap"):
+        snap_lines: list[str] = []
+        raw = _run("snap refresh --list 2>/dev/null | head -50")
+        if raw == "(no output)" or not raw.strip() or "All snaps up to date" in raw:
+            snap_lines.append("[OK] All snaps are up to date")
+        else:
+            pkgs = [l for l in raw.splitlines() if l.strip()]
+            # First line is the header
+            count = max(0, len(pkgs) - 1)
+            snap_lines.append(f"{count} snap(s) can be updated:")
+            snap_lines.append(raw)
+        sections.append("=== snap ===\n" + "\n".join(snap_lines))
+    else:
+        sections.append("=== snap ===\nN/A (not installed)")
+
+    # --- flatpak ---
+    if _has("flatpak"):
+        flat_lines: list[str] = []
+        raw = _run("flatpak remote-ls --updates 2>/dev/null | head -50")
+        if raw == "(no output)" or not raw.strip():
+            flat_lines.append("[OK] All flatpaks are up to date")
+        else:
+            pkgs = [l for l in raw.splitlines() if l.strip()]
+            flat_lines.append(f"{len(pkgs)} flatpak(s) can be updated:")
+            flat_lines.append(raw)
+        sections.append("=== flatpak ===\n" + "\n".join(flat_lines))
+    else:
+        sections.append("=== flatpak ===\nN/A (not installed)")
+
+    max_chars = 16000
+    output = "\n\n".join(sections)
+    if len(output) > max_chars:
+        overflow = len(output) - max_chars
+        suffix = f"\n[... {overflow} chars truncated]"
+        output = output[:max_chars - len(suffix)] + suffix
+    return output
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # GENERAL PURPOSE
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -670,6 +790,7 @@ ALL_TOOLS = [
 
     # Security audit
     system_audit,
+    check_outdated_packages,
 
     # General purpose
     run_command,
