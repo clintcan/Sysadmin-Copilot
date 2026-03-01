@@ -29,6 +29,7 @@ The entire configuration lives at the top of `safety.py` (lines 20–67):
 WRITE_TOOLS = {
     "restart_service",
     "stop_service",
+    "update_packages",
 }
 
 # Services that are allowed to be restarted/stopped
@@ -153,7 +154,7 @@ Finally, `t.func = wrapped` replaces the underlying function on the tool object 
 
 ## `_wrap_write_tool()` — Allowlist + Confirmation
 
-Lines 111–148:
+Lines 111–152:
 
 ```python
     def _wrap_write_tool(self, t: BaseTool, audit_logger) -> BaseTool:
@@ -162,8 +163,8 @@ Lines 111–148:
 
         @wraps(original_func)
         def wrapped(*args, **kwargs):
-            # Check service allowlist
-            service = kwargs.get("service", args[0] if args else None)
+            # Check service allowlist (only for service management tools)
+            service = kwargs.get("service")
             if service and service not in self.allowed_services:
                 msg = (
                     f"[DENIED] Service '{service}' is not in the allowlist.\n"
@@ -174,8 +175,13 @@ Lines 111–148:
                     audit_logger.log_command(t.name, kwargs, blocked=True)
                 return msg
 
+            # Build display string from actual arguments
+            parts = [str(a) for a in args]
+            parts += [f"{k}={v}" for k, v in kwargs.items()]
+            args_display = ", ".join(parts) if parts else ""
+
             # Prompt for confirmation
-            print(f"\n\033[33m⚠  The agent wants to: {t.name}({service})\033[0m")
+            print(f"\n\033[33m⚠  The agent wants to: {t.name}({args_display})\033[0m")
             try:
                 confirm = input("\033[33m   Allow this action? [y/N]: \033[0m").strip().lower()
             except (KeyboardInterrupt, EOFError):
@@ -196,7 +202,7 @@ Lines 111–148:
         return t
 ```
 
-The allowlist check runs first. If the service isn't in `ALLOWED_SERVICES`, the agent gets a denial message back — explaining what happened and how to add the service. The agent will relay this to the user.
+The allowlist check runs first, but only for tools that have a `service` kwarg (like `restart_service` and `stop_service`). Non-service write tools like `update_packages` skip this check and go straight to the confirmation prompt. If the service isn't in `ALLOWED_SERVICES`, the agent gets a denial message back — explaining what happened and how to add the service. The agent will relay this to the user.
 
 Then comes the `input()` prompt. The agent is paused here, waiting for a human keypress. Typing `y` or `yes` proceeds; anything else (including Ctrl+C) cancels and returns `[CANCELLED]`.
 

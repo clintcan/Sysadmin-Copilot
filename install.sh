@@ -208,7 +208,15 @@ $(build_alias COPILOT_RESTART restart)
 
 $(build_alias COPILOT_STOP stop)
 
-${SERVICE_USER} ALL=(ALL) NOPASSWD: COPILOT_RESTART, COPILOT_STOP
+Cmnd_Alias COPILOT_UPDATE = \\
+    /usr/bin/apt-get update, \\
+    /usr/bin/apt-get upgrade -y, \\
+    /usr/bin/dnf upgrade -y, \\
+    /usr/bin/yum update -y, \\
+    /usr/bin/snap refresh, \\
+    /usr/bin/flatpak update -y
+
+${SERVICE_USER} ALL=(ALL) NOPASSWD: COPILOT_RESTART, COPILOT_STOP, COPILOT_UPDATE
 SUDOERS
 
 chmod 440 "$SUDOERS_FILE"

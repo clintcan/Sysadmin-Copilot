@@ -90,7 +90,7 @@ Beyond natural-language questions, the REPL has a few built-in commands:
 | Command | What it does |
 |---------|-------------|
 | `help` | Show the command list |
-| `tools` | List all 25 available tools with descriptions |
+| `tools` | List all 26 available tools with descriptions |
 | `audit` | Show the audit log for the current session |
 | `audit last N` | Show tool calls from the last N past sessions |
 | `new` | Reset conversation history (start fresh) |

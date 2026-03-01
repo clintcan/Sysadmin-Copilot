@@ -21,6 +21,7 @@ from langchain_core.tools import BaseTool
 WRITE_TOOLS = {
     "restart_service",
     "stop_service",
+    "update_packages",
 }
 
 # Services that are allowed to be restarted/stopped
@@ -114,8 +115,8 @@ class SafetyLayer:
 
         @wraps(original_func)
         def wrapped(*args, **kwargs):
-            # Check service allowlist
-            service = kwargs.get("service", args[0] if args else None)
+            # Check service allowlist (only for service management tools)
+            service = kwargs.get("service")
             if service and service not in self.allowed_services:
                 msg = (
                     f"[DENIED] Service '{service}' is not in the allowlist.\n"
@@ -126,8 +127,13 @@ class SafetyLayer:
                     audit_logger.log_command(t.name, kwargs, blocked=True)
                 return msg
 
+            # Build display string from actual arguments
+            parts = [str(a) for a in args]
+            parts += [f"{k}={v}" for k, v in kwargs.items()]
+            args_display = ", ".join(parts) if parts else ""
+
             # Prompt for confirmation
-            print(f"\n\033[33m⚠  The agent wants to: {t.name}({service})\033[0m")
+            print(f"\n\033[33m⚠  The agent wants to: {t.name}({args_display})\033[0m")
             try:
                 confirm = input("\033[33m   Allow this action? [y/N]: \033[0m").strip().lower()
             except (KeyboardInterrupt, EOFError):

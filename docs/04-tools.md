@@ -227,6 +227,7 @@ ALL_TOOLS = [
     # Security audit
     system_audit,
     check_outdated_packages,
+    update_packages,
 
     # General purpose
     run_command,
@@ -240,7 +241,7 @@ ALL_TOOLS = [
 
 ## The General-Purpose Escape Hatch
 
-The 23 specific tools cover common sysadmin tasks, but investigations often need follow-up commands that no dedicated tool anticipates — reading a `/proc` entry, checking a config file, or running `ip route show`.
+The 24 specific tools cover common sysadmin tasks, but investigations often need follow-up commands that no dedicated tool anticipates — reading a `/proc` entry, checking a config file, or running `ip route show`.
 
 `run_command` (`tools.py:734–752`) fills that gap:
 

@@ -679,6 +679,61 @@ def check_outdated_packages() -> str:
     return output
 
 
+@tool
+def update_packages(manager: str = "auto") -> str:
+    """Install available package updates. REQUIRES CONFIRMATION.
+
+    This is a WRITE action. The safety layer will prompt the user
+    for confirmation before executing.
+
+    Auto-detects the system package manager (apt, dnf, or yum) when
+    manager='auto'. Snap and flatpak must be requested explicitly.
+
+    Args:
+        manager: Package manager to use. 'auto' detects the primary system
+                 manager. Explicit options: 'apt', 'dnf', 'yum', 'snap', 'flatpak'.
+    """
+    valid_managers = {"auto", "apt", "dnf", "yum", "snap", "flatpak"}
+    if manager not in valid_managers:
+        return f"[ERROR] Unknown package manager: '{manager}'. Valid options: {', '.join(sorted(valid_managers))}"
+
+    def _has(binary: str) -> bool:
+        return run_cmd(["bash", "-c", f"which {binary} 2>/dev/null"]) != "(no output)"
+
+    commands = {
+        "apt":     "sudo apt-get update && sudo apt-get upgrade -y",
+        "dnf":     "sudo dnf upgrade -y",
+        "yum":     "sudo yum update -y",
+        "snap":    "sudo snap refresh",
+        "flatpak": "sudo flatpak update -y",
+    }
+
+    if manager == "auto":
+        if _has("apt-get"):
+            manager = "apt"
+        elif _has("dnf"):
+            manager = "dnf"
+        elif _has("yum"):
+            manager = "yum"
+        else:
+            return "[ERROR] No supported package manager found (apt, dnf, yum)."
+
+    if not _has(manager.split("-")[0]):  # handle apt-get → apt
+        check = "apt-get" if manager == "apt" else manager
+        if not _has(check):
+            return f"[ERROR] Package manager '{manager}' is not installed on this system."
+
+    output = run_cmd(["bash", "-c", commands[manager]], timeout=300)
+
+    max_chars = 16000
+    if len(output) > max_chars:
+        overflow = len(output) - max_chars
+        suffix = f"\n[... {overflow} chars truncated]"
+        output = output[:max_chars - len(suffix)] + suffix
+
+    return f"=== {manager} upgrade ===\n{output}"
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # GENERAL PURPOSE
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -791,6 +846,7 @@ ALL_TOOLS = [
     # Security audit
     system_audit,
     check_outdated_packages,
+    update_packages,
 
     # General purpose
     run_command,
