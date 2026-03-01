@@ -221,7 +221,9 @@ def main():
 
     while True:
         try:
-            user_input = input("\033[32m❯ \033[0m").strip()
+            # get current directory
+            current_directory = os.getcwd()
+            user_input = input("\033[32m"+current_directory+" ❯ \033[0m").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n\033[90mGoodbye!\033[0m")
             break
