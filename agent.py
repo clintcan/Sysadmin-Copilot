@@ -27,8 +27,9 @@ from datetime import datetime
 from langchain_core.messages import HumanMessage
 from langchain.agents import create_agent
 
-from tools import ALL_TOOLS
+from tools import ALL_TOOLS, EXTRA_WRITE_TOOLS
 from safety import SafetyLayer
+import safety as safety_module
 from audit import AuditLogger
 
 # History is trimmed before each agent call if it exceeds this character count.
@@ -205,6 +206,9 @@ def main():
     except Exception as e:
         print(f"\033[31mFailed to initialize LLM: {e}\033[0m")
         sys.exit(1)
+
+    # Merge any write-tool declarations from plugins into the safety layer
+    safety_module.WRITE_TOOLS |= EXTRA_WRITE_TOOLS
 
     # Wrap tools with safety and audit layers
     wrapped_tools = safety.wrap_tools(ALL_TOOLS, audit)

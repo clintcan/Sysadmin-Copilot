@@ -90,6 +90,9 @@ sysadmin-copilot/
 ├── tools.py           # All agent tools (Linux CLI wrappers)
 ├── safety.py          # Permission tiers, allowlists, confirmation prompts
 ├── audit.py           # Command audit logging
+├── tools_extra/       # Drop-in directory for custom tools (auto-discovered)
+│   ├── __init__.py
+│   └── _example.py    # Template (skipped by _ prefix)
 ├── install.sh         # Automated service account installer
 ├── sync-sudoers.sh    # Regenerate sudoers from safety.py ALLOWED_SERVICES
 ├── requirements.txt   # Python dependencies
@@ -159,26 +162,47 @@ Every command is logged with timestamp, tool name, arguments, and status (OK / B
 
 ## Adding New Tools
 
-1. Add a function in `tools.py` with a `@tool` decorator and a clear docstring (the agent reads it to decide when to call the tool):
+### Custom tools (plugin directory)
+
+Drop a `.py` file into `tools_extra/` — it's auto-discovered at startup with no edits to core files:
 
 ```python
+# tools_extra/docker_tools.py
+from langchain_core.tools import tool
+from tools import run_cmd
+
 @tool
 def check_docker_containers(all: bool = False) -> str:
-    """List Docker containers, optionally including stopped ones.
-
-    Args:
-        all: If True, show all containers including stopped.
-    """
+    """List Docker containers, optionally including stopped ones."""
     cmd = ["docker", "ps"]
     if all:
         cmd.append("-a")
     return run_cmd(cmd)
+
+@tool
+def restart_container(name: str) -> str:
+    """Restart a Docker container. REQUIRES CONFIRMATION."""
+    return run_cmd(["docker", "restart", name])
+
+# List write tools that need user confirmation before executing.
+# Read tools (check_docker_containers) run without prompting.
+WRITE_TOOLS = {"restart_container"}
 ```
 
+Rules:
+- Files must be `.py` and not start with `_`
+- Each `@tool` function is registered automatically
+- A single file can contain any mix of read and write tools
+- Declare `WRITE_TOOLS = {"name1", "name2"}` for tools that need confirmation
+- See `tools_extra/_example.py` for a full template
+
+### Core tools
+
+To add a tool that ships with the project:
+
+1. Add a function in `tools.py` with a `@tool` decorator and a clear docstring.
 2. Add it to `ALL_TOOLS` at the bottom of `tools.py`.
-
-3. If it's a write action (modifies system state), add its name to `WRITE_TOOLS` in `safety.py`. It will then require user confirmation and service allowlist checks automatically.
-
+3. If it's a write action, add its name to `WRITE_TOOLS` in `safety.py`.
 4. If the write action calls `sudo`, run `sudo bash sync-sudoers.sh` to update the sudoers file.
 
 The safety and audit wrappers are applied automatically — no changes needed in `agent.py`. See [docs/08-extending.md](docs/08-extending.md) for a full walkthrough.

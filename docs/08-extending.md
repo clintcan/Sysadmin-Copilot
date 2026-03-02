@@ -1,6 +1,110 @@
 # Chapter 8 — Extending: Add Your Own Tool
 
-This chapter walks through adding a new tool from scratch. By the end, you'll have a working `check_swap_usage` tool that the agent can call to get detailed swap statistics.
+This chapter covers two ways to add tools:
+
+1. **Plugin directory** (`tools_extra/`) — drop in a `.py` file, no core edits needed. Best for custom or site-specific tools.
+2. **Core tool** (in `tools.py`) — for tools that ship with the project.
+
+---
+
+## Option 1: Plugin Directory (`tools_extra/`)
+
+The fastest way to add custom tools. Files in `tools_extra/` are auto-discovered at startup.
+
+### How it works
+
+At import time, `tools.py` scans `tools_extra/` for `.py` files (skipping `_`-prefixed ones). Each file is loaded via `importlib`, and any `@tool`-decorated functions are collected and appended to `ALL_TOOLS`. An optional module-level `WRITE_TOOLS` set declares which tools need user confirmation.
+
+### Creating a plugin
+
+```python
+# tools_extra/docker_tools.py
+from langchain_core.tools import tool
+from tools import run_cmd
+
+@tool
+def check_docker_containers(all: bool = False) -> str:
+    """List Docker containers, optionally including stopped ones.
+
+    Args:
+        all: If True, show all containers including stopped.
+    """
+    cmd = ["docker", "ps"]
+    if all:
+        cmd.append("-a")
+    return run_cmd(cmd)
+
+@tool
+def check_docker_images() -> str:
+    """List locally available Docker images."""
+    return run_cmd(["docker", "images"])
+
+# Optional: declare write tools that need user confirmation
+WRITE_TOOLS = set()
+```
+
+### Plugin rules
+
+- Files must be `.py` and not start with `_` (the `_example.py` template is skipped)
+- Each `@tool` function is auto-registered — no need to edit `ALL_TOOLS`
+- Import `run_cmd` from `tools` for subprocess execution
+- Declare `WRITE_TOOLS = {"tool_name"}` for tools that modify system state
+- Errors in a plugin file are warned but don't crash startup
+- Plugins load in sorted filename order
+
+### Startup output
+
+When plugins are loaded you'll see:
+
+```
+Loaded 2 extra tool(s): check_docker_containers, check_docker_images
+```
+
+If a plugin has a syntax error:
+
+```
+[WARNING] Failed to load plugin bad_plugin.py: SyntaxError(...)
+```
+
+### Write tools in plugins
+
+If your plugin has tools that modify system state, declare them in a module-level set. A single file can contain any mix of read and write tools — just list the write ones by name:
+
+```python
+# tools_extra/docker_management.py
+from langchain_core.tools import tool
+from tools import run_cmd
+
+@tool
+def check_docker_containers(all: bool = False) -> str:
+    """List Docker containers."""
+    cmd = ["docker", "ps"]
+    if all:
+        cmd.append("-a")
+    return run_cmd(cmd)
+
+@tool
+def restart_container(name: str) -> str:
+    """Restart a Docker container. REQUIRES CONFIRMATION."""
+    return run_cmd(["docker", "restart", name])
+
+@tool
+def stop_container(name: str) -> str:
+    """Stop a Docker container. REQUIRES CONFIRMATION."""
+    return run_cmd(["docker", "stop", name])
+
+# Read tools (check_docker_containers) are auto-allowed.
+# Write tools listed here get a confirmation prompt.
+WRITE_TOOLS = {"restart_container", "stop_container"}
+```
+
+The agent will prompt `Allow this action? [y/N]` before executing any tool listed in `WRITE_TOOLS`, just like the core write tools. Tools not in the set are treated as read-only. If the write tool manages systemd services, those services still need to be in `ALLOWED_SERVICES` (in `safety.py` or via `EXTRA_SERVICES` env var) and in the sudoers file.
+
+---
+
+## Option 2: Core Tool (in `tools.py`)
+
+For tools that ship with the project. The rest of this chapter walks through this approach.
 
 ---
 
@@ -177,9 +281,13 @@ Note:
 
 ---
 
-## Summary: The Three-File Checklist
+## Summary: Adding a Tool
 
-When adding any new tool, touch these files:
+### Plugin (custom/site-specific)
+
+Drop a `.py` file in `tools_extra/`. No core files need editing. Declare write tools via `WRITE_TOOLS = {"name"}`.
+
+### Core tool
 
 | File | What to do |
 |------|-----------|

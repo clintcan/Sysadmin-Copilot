@@ -10,12 +10,14 @@ To add a new tool:
   3. Add it to ALL_TOOLS at the bottom
 """
 
+import importlib.util
 import os
 import shlex
 import subprocess
+from pathlib import Path
 from typing import Optional
 
-from langchain_core.tools import tool
+from langchain_core.tools import BaseTool, tool
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -831,6 +833,54 @@ def run_command(command: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# PLUGIN LOADER
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _load_extra_tools() -> tuple[list, set]:
+    """Auto-discover tools from tools_extra/*.py files.
+
+    Returns (tools_list, write_tools_set).
+    Files starting with '_' are skipped. Errors are warned but don't crash startup.
+    """
+    extra_dir = Path(__file__).parent / "tools_extra"
+    tools = []
+    write_tools = set()
+
+    if not extra_dir.is_dir():
+        return tools, write_tools
+
+    for py_file in sorted(extra_dir.glob("*.py")):
+        if py_file.name.startswith("_"):
+            continue
+
+        module_name = f"tools_extra.{py_file.stem}"
+        try:
+            spec = importlib.util.spec_from_file_location(module_name, py_file)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        except Exception as e:
+            print(f"\033[33m[WARNING] Failed to load plugin {py_file.name}: {e}\033[0m")
+            continue
+
+        # Collect @tool functions (BaseTool instances)
+        for attr_name in dir(mod):
+            attr = getattr(mod, attr_name)
+            if isinstance(attr, BaseTool):
+                tools.append(attr)
+
+        # Collect optional WRITE_TOOLS set
+        mod_write = getattr(mod, "WRITE_TOOLS", None)
+        if isinstance(mod_write, set):
+            write_tools |= mod_write
+
+    if tools:
+        names = ", ".join(t.name for t in tools)
+        print(f"\033[90mLoaded {len(tools)} extra tool(s): {names}\033[0m")
+
+    return tools, write_tools
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # TOOL REGISTRY
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -876,3 +926,7 @@ ALL_TOOLS = [
     run_command,
     search_web,
 ]
+
+# Auto-discover plugins from tools_extra/
+EXTRA_TOOLS, EXTRA_WRITE_TOOLS = _load_extra_tools()
+ALL_TOOLS += EXTRA_TOOLS
