@@ -225,4 +225,12 @@ The sudoers list mirrors `ALLOWED_SERVICES` exactly, so even if something bypass
 
 ---
 
+## Safety and `tools_extra/` Plugins
+
+Plugin tools loaded from `tools_extra/` go through the exact same `wrap_tools()` pipeline as core tools. They receive `_wrap_read_tool` or `_wrap_write_tool` wrappers depending on whether they declare themselves in `WRITE_TOOLS`. No plugin tool reaches the agent unwrapped.
+
+For a detailed security analysis of the plugin system — including why concerns like tool shadowing, symlinks, and import-time code execution are false positives — see [Chapter 8 — Plugin Security Model](08-extending.md#plugin-security-model).
+
+---
+
 Next: [Chapter 6 — Audit Logger](06-audit-logger.md)

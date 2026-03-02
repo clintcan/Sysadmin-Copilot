@@ -100,6 +100,22 @@ WRITE_TOOLS = {"restart_container", "stop_container"}
 
 The agent will prompt `Allow this action? [y/N]` before executing any tool listed in `WRITE_TOOLS`, just like the core write tools. Tools not in the set are treated as read-only. If the write tool manages systemd services, those services still need to be in `ALLOWED_SERVICES` (in `safety.py` or via `EXTRA_SERVICES` env var) and in the sudoers file.
 
+### Plugin security model
+
+Plugin tools go through the same safety layer as core tools. Here's what was verified and why each potential concern is a false positive:
+
+| Concern | Status | Reasoning |
+|---------|--------|-----------|
+| **Plugin tools bypass safety wrapping** | Safe | All plugins are appended to `ALL_TOOLS` before `safety.wrap_tools()` runs. Every plugin tool gets `_wrap_read_tool` (blocked pattern check) or `_wrap_write_tool` (confirmation prompt), identical to core tools. |
+| **Plugin removes entries from `WRITE_TOOLS`** | Safe | The merge is additive (set union). Plugins can only add write-tool declarations, never remove existing ones. |
+| **Plugin shadows a core tool name** | Safe | Both versions end up in `ALL_TOOLS` and both get safety-wrapped. This may cause LangChain to see duplicate tool names (a correctness issue), but neither copy bypasses the safety layer. |
+| **Arbitrary code at import time** | By design | `exec_module()` runs all module-level code in the plugin, not just `@tool` functions. This is inherent to any plugin system. A plugin author has the same trust level as someone editing `tools.py` directly — if they can write to `tools_extra/`, they can write to the core files too. |
+| **Symlinks pointing outside `tools_extra/`** | By design | `glob("*.py")` follows symlinks. However, anyone who can create symlinks in `tools_extra/` can also create `.py` files directly — same trust boundary. |
+
+**Key invariant:** `safety.wrap_tools()` runs after all plugins are loaded and after `EXTRA_WRITE_TOOLS` is merged. No plugin tool reaches the agent unwrapped.
+
+**Trust boundary:** Plugin files are trusted the same way core source files are. Treat `tools_extra/` with the same file permissions as the rest of the application. On a production install (via `install.sh`), the directory is owned by the `sysadmin-copilot` user and not world-writable.
+
 ---
 
 ## Option 2: Core Tool (in `tools.py`)
