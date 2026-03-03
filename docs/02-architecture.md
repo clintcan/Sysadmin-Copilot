@@ -6,29 +6,29 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                        agent.py (REPL)                          │
 │                                                                 │
-│  readline input ──► built-in commands (help/audit/new/clear)   │
+│  readline input ──► built-in commands (help/audit/new/clear)    │
 │                 └──► LangGraph ReAct agent                      │
 │                          │                                      │
 │                    conversation history []                      │
 └─────────────────────────────────┬───────────────────────────────┘
                                   │ agent.stream()
                     ┌─────────────▼──────────────┐
-                    │      LangGraph / LangChain  │
-                    │                             │
-                    │  Reason ──► Act ──► Reason  │
-                    │   (LLM)       (tool)  (LLM) │
+                    │      LangGraph / LangChain │
+                    │                            │
+                    │  Reason ──► Act ──► Reason │
+                    │   (LLM)       (tool)  (LLM)│
                     └─────────────┬──────────────┘
                                   │ tool call
               ┌───────────────────▼───────────────────┐
-              │           safety.py (wrappers)         │
-              │                                        │
+              │           safety.py (wrappers)        │
+              │                                       │
               │  READ tool ──► BLOCKED check ──► run  │
-              │  WRITE tool ──► allowlist check        │
-              │              ──► confirmation prompt   │
-              │              ──► run                   │
+              │  WRITE tool ──► allowlist check       │
+              │              ──► confirmation prompt  │
+              │              ──► run                  │
               └───────────────────┬───────────────────┘
                        │          │
-              ┌────────▼──┐  ┌────▼──────────────────┐
+              ┌────────▼──┐  ┌────▼───────────────────┐
               │  tools.py │  │      audit.py          │
               │           │  │                        │
               │ run_cmd() │  │ log_command() ──► JSONL│
