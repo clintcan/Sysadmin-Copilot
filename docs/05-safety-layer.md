@@ -22,7 +22,7 @@ The tier is determined at **tool registration time** — when `wrap_tools()` run
 
 ## Configuration Block
 
-The entire configuration lives at the top of `safety.py` (lines 20–67):
+The entire configuration lives at the top of `safety.py` (lines 20–91):
 
 ```python
 # Tools that require user confirmation before execution
@@ -60,19 +60,42 @@ if _extra_services:
     ALLOWED_SERVICES |= {s.strip() for s in _extra_services.split(",") if s.strip()}
 
 # Arguments that are NEVER allowed in any tool
+# NOTE: This is defense-in-depth, not a security boundary.
+# The real boundary is OS-level permissions (service account + sudoers).
+# See docs/05-safety-layer.md "Threat Model and Limitations" for details.
 BLOCKED_PATTERNS = [
+    # File removal / destruction
     "rm ", "rm -",
+    "rmdir ",
+    "unlink ",
+    "shred ",
+    # Disk / device
     "dd ",
     "mkfs",
+    "> /dev/",
+    "tee /dev/",
+    # System state
     "shutdown",
     "reboot",
     "poweroff",
     "halt",
     "init 0",
     "init 6",
-    "> /dev/",
-    "chmod 777",
-    ":(){ :|:",  # fork bomb
+    # Permissions
+    "chmod 777", "chmod 0777",
+    "chmod a+rwx",
+    # Fork bomb
+    ":(){ :|:",
+    # File overwrite / zeroing
+    "truncate ",
+    # find's destructive flag
+    "-delete",
+    # Encoding evasion (decode payload then execute)
+    "base64 -d",
+    "base64 --decode",
+    # Piped shell execution (catches encoded payloads piped to shell)
+    "| bash", "| sh",
+    "| /bin/bash", "| /bin/sh",
 ]
 ```
 
@@ -86,7 +109,7 @@ BLOCKED_PATTERNS = [
 
 ## The `wrap_tools()` Dispatcher
 
-`wrap_tools()` (lines 76–84) is the main entry point. It iterates over the tool list and applies the appropriate wrapper:
+`wrap_tools()` (lines 100–108) is the main entry point. It iterates over the tool list and applies the appropriate wrapper:
 
 ```python
     def wrap_tools(self, tools: list, audit_logger=None) -> list:
@@ -106,7 +129,7 @@ The returned list is what gets passed to `create_agent()`. The agent never sees 
 
 ## `_wrap_read_tool()` — Audit + Blocked Pattern Check
 
-Lines 86–109:
+Lines 110–133:
 
 ```python
     def _wrap_read_tool(self, t: BaseTool, audit_logger) -> BaseTool:
@@ -154,7 +177,7 @@ Finally, `t.func = wrapped` replaces the underlying function on the tool object 
 
 ## `_wrap_write_tool()` — Allowlist + Confirmation
 
-Lines 111–152:
+Lines 135–177:
 
 ```python
     def _wrap_write_tool(self, t: BaseTool, audit_logger) -> BaseTool:
@@ -230,6 +253,109 @@ The sudoers list mirrors `ALLOWED_SERVICES` exactly, so even if something bypass
 Plugin tools loaded from `tools_extra/` go through the exact same `wrap_tools()` pipeline as core tools. They receive `_wrap_read_tool` or `_wrap_write_tool` wrappers depending on whether they declare themselves in `WRITE_TOOLS`. No plugin tool reaches the agent unwrapped.
 
 For a detailed security analysis of the plugin system — including why concerns like tool shadowing, symlinks, and import-time code execution are false positives — see [Chapter 8 — Plugin Security Model](08-extending.md#plugin-security-model).
+
+---
+
+## Threat Model and Limitations
+
+The blocked-pattern check is **defense-in-depth** — a first line of defense against accidental destruction, not a security sandbox. It's important to understand what it protects against and what it doesn't.
+
+### What blocked patterns defend against
+
+- **LLM misunderstanding**: The model interprets "clean up disk space" as `rm -rf /tmp/*`. The pattern `"rm "` catches this before any subprocess runs.
+- **Basic prompt injection**: Crafted log output or user input tricks the model into calling `run_command(command="dd if=/dev/zero of=/dev/sda")`. The pattern `"dd "` catches this.
+- **Obvious destructive commands**: `shutdown`, `reboot`, `mkfs`, fork bombs — commands that are never appropriate for a read-mostly sysadmin assistant.
+
+### What blocked patterns don't defend against
+
+- **Sophisticated evasion**: A determined attacker can use hex encoding (`echo 726d202d7266202f | xxd -r -p`), alternative interpreters (`python3 -c "import os; os.remove(...)"`), or exploit edge cases the pattern list doesn't cover.
+- **Novel destructive commands**: The list can never be exhaustive. New tools, shell builtins, and creative combinations can bypass substring matching.
+- **Non-command attacks**: The patterns only check tool argument strings. They can't prevent the LLM from leaking sensitive data it read from logs, or from making poor recommendations.
+
+### The three-layer defense model
+
+The real security comes from layering multiple controls:
+
+```
+Layer 1: Blocked Patterns    — catches common mistakes and obvious attacks
+Layer 2: User Confirmation   — human approves every WRITE action before execution
+Layer 3: OS Permissions      — service account + sudoers limit what can actually run
+```
+
+**Layer 3 is the security boundary.** Even if layers 1 and 2 are bypassed, the `sysadmin-copilot` service account can only:
+- Read logs and system status (group memberships: `adm`, `systemd-journal`)
+- Restart/stop services explicitly listed in sudoers (`NOPASSWD` for those commands only)
+- Run package updates via the specific `apt-get`/`dnf`/`yum` commands in sudoers
+
+It cannot `rm` system files, write to `/dev`, or `shutdown` the host — the OS won't allow it regardless of what the Python layer does.
+
+### Blocked pattern coverage
+
+| Category | Patterns | Catches |
+|----------|----------|---------|
+| File destruction | `rm `, `rm -`, `rmdir `, `unlink `, `shred `, `truncate ` | Direct file removal/wiping |
+| Disk/device | `dd `, `mkfs`, `> /dev/`, `tee /dev/` | Overwriting devices/partitions |
+| System state | `shutdown`, `reboot`, `poweroff`, `halt`, `init 0`, `init 6` | Unplanned reboots/shutdowns |
+| Permissions | `chmod 777`, `chmod 0777`, `chmod a+rwx` | Opening world-writable permissions |
+| Fork bomb | `:(){ :\|:` | Classic bash fork bomb |
+| Find destruction | `-delete` | `find ... -delete` mass file removal |
+| Encoding evasion | `base64 -d`, `base64 --decode` | Decoding hidden payloads |
+| Piped execution | `\| bash`, `\| sh`, `\| /bin/bash`, `\| /bin/sh` | Piping decoded/downloaded content to a shell |
+
+**Known gaps** (accepted, because Layer 3 covers them):
+- `perl -e`, `python -c`, `ruby -e` — scripting language one-liners
+- `mv` to overwrite critical files
+- `curl ... | python` — piped execution via other interpreters
+- Hex/octal encoding, variable expansion tricks
+
+---
+
+## Shell Injection Audit
+
+Since tools execute shell commands via `subprocess.run()`, it's worth documenting where user-controlled input flows into those commands.
+
+### `run_cmd()` — the subprocess helper
+
+All tools use `run_cmd(cmd, timeout)` which calls `subprocess.run(cmd, ...)` with a **list** argument. This means `subprocess` uses `execvp` directly — no shell interpretation, no injection risk — *unless* the list is `["bash", "-c", some_string]`, which does invoke a shell.
+
+### Code paths through `bash -c`
+
+**`run_command` — freeform shell** (lines 815–832): Takes a user-supplied `command` string and runs `bash -c {command}`. This is the most exposed surface. It relies entirely on `BLOCKED_PATTERNS` and OS permissions for safety.
+
+**4 tools use `shlex.quote()` on user parameters:**
+
+| Tool | User parameter | How it's quoted |
+|------|---------------|-----------------|
+| `read_log_file` | `path`, `grep` | `shlex.quote(grep)`, `shlex.quote(path)` |
+| `check_dmesg` | `level` | `shlex.quote(level)` |
+| `check_directory_size` | `path` | `shlex.quote(path)` |
+| `find_recent_files` | `path` | `shlex.quote(path)` |
+
+These are safe against shell injection — `shlex.quote()` wraps the value in single quotes and escapes any embedded quotes.
+
+**Hardcoded `bash -c` calls** (no user input in the command string):
+
+- `check_cpu_and_load` — `lscpu | grep ...` (hardcoded)
+- `check_top_processes` — `ps aux --sort=... | head -n {count}` (`count` is an `int`, not injectable)
+- `find_zombie_processes` — `ps aux | grep -w Z | grep -v grep` (hardcoded)
+- `check_cron_jobs` — `for f in /etc/cron.d/*; ...` (hardcoded)
+- `system_audit` — all `_run()` calls use hardcoded strings or `int` parameters
+- `check_outdated_packages` — all `_run()` calls use hardcoded strings
+- `update_packages` — commands from a fixed `dict`, not user-composed
+
+### Tools that don't use `bash -c`
+
+The remaining tools pass arguments as list elements directly to `run_cmd()`:
+- `query_journal_logs` — `["journalctl", "-u", unit, ...]`
+- `check_disk_usage` — `["df", "-h", path]`
+- `check_service_status` — `["systemctl", "status", service, ...]`
+- `restart_service` / `stop_service` — `["sudo", "systemctl", "restart", service]`
+- `check_open_ports` — `["ss", "-tulnp"]`
+- `ping_host` — `["ping", "-c", str(count), host]`
+- `dns_lookup` — `["dig", "+short", domain]`
+- `check_url_health` — `["curl", ..., url]`
+
+These are safe — list-form `subprocess.run()` doesn't interpret shell metacharacters.
 
 ---
 

@@ -16,7 +16,7 @@ The docstring is not just documentation — it's part of the prompt. Write it as
 
 ## A Minimal Tool
 
-`check_memory` (`tools.py:167–170`) is the simplest tool in the codebase:
+`check_memory` (`tools.py:169–172`) is the simplest tool in the codebase:
 
 ```python
 @tool
@@ -31,7 +31,7 @@ Four lines. No parameters, no logic. The docstring is the agent's guide. `run_cm
 
 ## The `run_cmd()` Helper
 
-Every tool calls `run_cmd()`. Here's the full implementation (`tools.py:35–57`):
+Every tool calls `run_cmd()`. Here's the full implementation (`tools.py:37–59`):
 
 ```python
 def run_cmd(cmd: list[str], timeout: int = 30) -> str:
@@ -67,7 +67,7 @@ Key decisions:
 
 **Hard timeout** — 30 seconds by default. Prevents the agent from hanging indefinitely on a slow command like `ping` or a stalled process.
 
-**Output truncation** (`tools.py:47–50`):
+**Output truncation** (`tools.py:49–52`):
 
 ```python
         if len(output) > MAX_OUTPUT_CHARS:
@@ -82,7 +82,7 @@ Key decisions:
 
 ## A Multi-Parameter Tool
 
-`query_journal_logs` (`tools.py:64–92`) shows how to handle optional parameters:
+`query_journal_logs` (`tools.py:66–94`) shows how to handle optional parameters:
 
 ```python
 @tool
@@ -127,7 +127,7 @@ All parameters are `Optional` with defaults, so the LLM can omit any of them. Th
 
 ## Security: Shell Injection
 
-Some tools genuinely need a shell pipeline — two commands connected with `|`. For those, `read_log_file` shows the safe pattern (`tools.py:114–119`):
+Some tools genuinely need a shell pipeline — two commands connected with `|`. For those, `read_log_file` shows the safe pattern (`tools.py:116–121`):
 
 ```python
     if grep:
@@ -161,7 +161,7 @@ path_q = shlex.quote(path)    # the semicolon and slashes are neutralised
 
 ## Configurable Log Paths
 
-`read_log_file` only reads files under approved directories (`tools.py:27–32`, `110–112`):
+`read_log_file` only reads files under approved directories (`tools.py:29–34`, `113–114`):
 
 ```python
 _log_paths_env = os.environ.get("LOG_PATHS", "")
@@ -244,7 +244,7 @@ ALL_TOOLS = [
 
 The 24 specific tools cover common sysadmin tasks, but investigations often need follow-up commands that no dedicated tool anticipates — reading a `/proc` entry, checking a config file, or running `ip route show`.
 
-`run_command` (`tools.py:734–752`) fills that gap:
+`run_command` (`tools.py:815–832`) fills that gap:
 
 ```python
 @tool
@@ -255,7 +255,7 @@ def run_command(command: str) -> str:
 
 It passes the command string through `bash -c`, reusing the same `run_cmd()` helper — 30-second timeout, 8000 char output cap, and error handling all apply.
 
-**Safety**: because `run_command` is not in `WRITE_TOOLS`, it gets wrapped by `_wrap_read_tool()`. The wrapper scans the `command` string against `BLOCKED_PATTERNS` before execution, so attempts to run `rm`, `dd`, `shutdown`, `reboot`, etc. are blocked. No `sudo` is used, so OS-level permissions further constrain what can run.
+**Safety**: because `run_command` is not in `WRITE_TOOLS`, it gets wrapped by `_wrap_read_tool()`. The wrapper scans the `command` string against `BLOCKED_PATTERNS` before execution, so attempts to run destructive commands (`rm`, `dd`, `shutdown`, `reboot`, `shred`, `truncate`, `mkfs`, etc.), encoding evasion (`base64 -d | sh`), and dangerous permission changes (`chmod 777`) are blocked. No `sudo` is used, so OS-level permissions further constrain what can run. See [Chapter 5 — Threat Model](05-safety-layer.md#threat-model-and-limitations) for the full coverage table and known limitations.
 
 The system prompt tells the agent to prefer `run_command` over suggesting commands for the user to run manually.
 

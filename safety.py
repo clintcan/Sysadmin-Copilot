@@ -52,19 +52,42 @@ if _extra_services:
     ALLOWED_SERVICES |= {s.strip() for s in _extra_services.split(",") if s.strip()}
 
 # Arguments that are NEVER allowed in any tool
+# NOTE: This is defense-in-depth, not a security boundary.
+# The real boundary is OS-level permissions (service account + sudoers).
+# See docs/05-safety-layer.md "Threat Model and Limitations" for details.
 BLOCKED_PATTERNS = [
+    # File removal / destruction
     "rm ", "rm -",
+    "rmdir ",
+    "unlink ",
+    "shred ",
+    # Disk / device
     "dd ",
     "mkfs",
+    "> /dev/",
+    "tee /dev/",
+    # System state
     "shutdown",
     "reboot",
     "poweroff",
     "halt",
     "init 0",
     "init 6",
-    "> /dev/",
-    "chmod 777",
-    ":(){ :|:",  # fork bomb
+    # Permissions
+    "chmod 777", "chmod 0777",
+    "chmod a+rwx",
+    # Fork bomb
+    ":(){ :|:",
+    # File overwrite / zeroing
+    "truncate ",
+    # find's destructive flag
+    "-delete",
+    # Encoding evasion (decode payload then execute)
+    "base64 -d",
+    "base64 --decode",
+    # Piped shell execution (catches encoded payloads piped to shell)
+    "| bash", "| sh",
+    "| /bin/bash", "| /bin/sh",
 ]
 
 

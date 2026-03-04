@@ -15,7 +15,7 @@ LangChain's `create_agent` implements this pattern. You hand it a model, a list 
 
 ## Building the Agent
 
-Here's the agent creation block from `agent.py` (lines 202–216):
+Here's the agent creation block from `agent.py` (lines 203–220):
 
 ```python
     # Initialize LLM and agent
@@ -46,7 +46,7 @@ Notice that `wrapped_tools` — not `ALL_TOOLS` directly — is passed to the ag
 
 ## System Prompt
 
-The system prompt is generated fresh on every startup (`agent.py:161–186`):
+The system prompt is generated fresh on every startup (`agent.py:162–184`):
 
 ```python
 def build_system_prompt():
@@ -77,7 +77,7 @@ The line "the safety layer will handle confirmation" is important: it tells the 
 
 ## Conversation History
 
-The `history` list is the core of multi-turn conversation (`agent.py:220`):
+The `history` list is the core of multi-turn conversation (`agent.py:224`):
 
 ```python
 history = []  # accumulates messages across turns for multi-step investigations
@@ -108,7 +108,7 @@ The `new` command resets history to `[]`, starting a fresh context. The `clear` 
 
 History grows with every turn: each round adds a human message, N tool-call messages, N tool-result messages (up to 8,000 chars each), and a final AI response. Left unchecked, this eventually exceeds any model's context window.
 
-Three guards prevent a crash (`agent.py:36–37`, `40–52`, `265–274`, `320–328`, `333–342`).
+Three guards prevent a crash (`agent.py:35–38`, `41–55`, `271–280`, `326–334`, `339–348`).
 
 **1. The limit constant** — a module-level cap, overridable via env var:
 
@@ -118,7 +118,7 @@ MAX_HISTORY_CHARS = int(os.environ.get("MAX_HISTORY_CHARS", "100000"))
 
 100,000 characters is roughly 25,000 tokens at 4 chars/token — well under the context window of all supported models.
 
-**2. `_count_history_chars()` — provider-aware measurement** (`agent.py:40–52`):
+**2. `_count_history_chars()` — provider-aware measurement** (`agent.py:41–55`):
 
 ```python
 def _count_history_chars(history: list) -> int:
@@ -140,7 +140,7 @@ def _count_history_chars(history: list) -> int:
 
 Ollama and OpenAI return `str` content. Anthropic returns a list of typed blocks (`{"type": "text", "text": "..."}`, `{"type": "tool_use", ...}`, etc.). Both are measured correctly.
 
-**3. Pre-call guard** — checked after appending the user message, before touching the LLM (`agent.py:265–274`):
+**3. Pre-call guard** — checked after appending the user message, before touching the LLM (`agent.py:271–280`):
 
 ```python
         # Guard against context overflow before sending to the LLM
@@ -157,7 +157,7 @@ Ollama and OpenAI return `str` content. Anthropic returns a list of typed blocks
 
 `history.pop()` removes the just-appended `HumanMessage`, restoring history to its pre-turn state. `continue` skips the `try` block entirely — the LLM is never called.
 
-**4. Exception handler fallback** — catches context errors that slip past the guard (`agent.py:333–342`):
+**4. Exception handler fallback** — catches context errors that slip past the guard (`agent.py:339–348`):
 
 ```python
         except Exception as e:
@@ -174,7 +174,7 @@ Ollama and OpenAI return `str` content. Anthropic returns a list of typed blocks
 
 The keyword list covers real error strings from all three providers. Non-context errors still show the raw exception.
 
-**5. `log_interaction` content guard** (`agent.py:320–328`):
+**5. `log_interaction` content guard** (`agent.py:326–334`):
 
 ```python
             last_content = history[-1].content
@@ -193,7 +193,7 @@ The keyword list covers real error strings from all three providers. Non-context
 
 ## Streaming
 
-The streaming loop (`agent.py:281–310`) uses LangGraph's dual stream mode:
+The streaming loop (`agent.py:287–316`) uses LangGraph's dual stream mode:
 
 ```python
 for mode, data in agent.stream(
@@ -245,7 +245,7 @@ The guard `not getattr(chunk, "tool_call_chunks", None)` is crucial. Without it,
 
 ## Ollama Connectivity Check
 
-Before starting the REPL, the code verifies Ollama is running (`agent.py:107–115`):
+Before starting the REPL, the code verifies Ollama is running (`agent.py:108–116`):
 
 ```python
         try:
@@ -265,7 +265,7 @@ This fails fast with a useful message instead of letting the first `agent.stream
 
 ## Built-in Commands
 
-Built-in commands are intercepted before the input is sent to the agent (`agent.py:232–260`). The pattern is a simple `if/elif` chain on the lowercased input:
+Built-in commands are intercepted before the input is sent to the agent (`agent.py:239–266`). The pattern is a simple `if/elif` chain on the lowercased input:
 
 ```python
 cmd = user_input.lower()
