@@ -101,7 +101,7 @@ def get_llm():
                 print(f"\033[31mFailed to install langchain-ollama: {e}\033[0m")
                 sys.exit(1)
 
-        model = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
+        model = os.environ.get("OLLAMA_MODEL", "qwen3.5")
         base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
         print(f"\033[90mUsing Ollama ({model}) at {base_url}\033[0m")
 

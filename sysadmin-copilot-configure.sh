@@ -61,17 +61,37 @@ require_cmd python3
 # ─── Read existing .env ──────────────────────────────────────────────────────
 
 ENV_FILE="${INSTALL_DIR}/.env"
+
+# Declare all known settings with empty defaults
 EXISTING_PROVIDER=""
 EXISTING_OPENAI_KEY=""
 EXISTING_ANTHROPIC_KEY=""
+EXISTING_OLLAMA_MODEL=""
+EXISTING_OLLAMA_BASE_URL=""
+EXISTING_OPENAI_MODEL=""
+EXISTING_OPENAI_BASE_URL=""
+EXISTING_ANTHROPIC_MODEL=""
+EXISTING_EXTRA_SERVICES=""
+EXISTING_LOG_PATHS=""
 
+# Read ALL existing key=value pairs so nothing is lost on rewrite
+declare -A EXTRA_ENV  # catch-all for unknown/future settings
 if [[ -f "$ENV_FILE" ]]; then
     info "Found existing config: ${ENV_FILE}"
     while IFS='=' read -r key val; do
+        [[ -z "$key" || "$key" == \#* ]] && continue
         case "$key" in
             LLM_PROVIDER)       EXISTING_PROVIDER="$val" ;;
             OPENAI_API_KEY)     EXISTING_OPENAI_KEY="$val" ;;
             ANTHROPIC_API_KEY)  EXISTING_ANTHROPIC_KEY="$val" ;;
+            OLLAMA_MODEL)       EXISTING_OLLAMA_MODEL="$val" ;;
+            OLLAMA_BASE_URL)    EXISTING_OLLAMA_BASE_URL="$val" ;;
+            OPENAI_MODEL)       EXISTING_OPENAI_MODEL="$val" ;;
+            OPENAI_BASE_URL)    EXISTING_OPENAI_BASE_URL="$val" ;;
+            ANTHROPIC_MODEL)    EXISTING_ANTHROPIC_MODEL="$val" ;;
+            EXTRA_SERVICES)     EXISTING_EXTRA_SERVICES="$val" ;;
+            LOG_PATHS)          EXISTING_LOG_PATHS="$val" ;;
+            *)                  EXTRA_ENV["$key"]="$val" ;;
         esac
     done < "$ENV_FILE"
 fi
@@ -114,6 +134,12 @@ case "$provider_choice" in
     1)
         LLM_PROVIDER="ollama"
         PROVIDER_PKG="langchain-ollama>=0.2"
+        default_model="${EXISTING_OLLAMA_MODEL:-qwen3.5:latest}"
+        read -rp "$(echo -e "${YELLOW}  Ollama model [${default_model}]: ${RESET}")" new_model
+        EXISTING_OLLAMA_MODEL="${new_model:-$default_model}"
+        default_url="${EXISTING_OLLAMA_BASE_URL:-http://localhost:11434}"
+        read -rp "$(echo -e "${YELLOW}  Ollama base URL [${default_url}]: ${RESET}")" new_url
+        EXISTING_OLLAMA_BASE_URL="${new_url:-$default_url}"
         ;;
     2)
         LLM_PROVIDER="openai"
@@ -125,6 +151,15 @@ case "$provider_choice" in
         else
             read -rp "$(echo -e "${YELLOW}  Enter your OpenAI API key: ${RESET}")" EXISTING_OPENAI_KEY
             [[ -n "$EXISTING_OPENAI_KEY" ]] || die "API key cannot be empty."
+        fi
+        default_model="${EXISTING_OPENAI_MODEL:-gpt-4o-mini}"
+        read -rp "$(echo -e "${YELLOW}  OpenAI model [${default_model}]: ${RESET}")" new_model
+        EXISTING_OPENAI_MODEL="${new_model:-$default_model}"
+        if [[ -n "$EXISTING_OPENAI_BASE_URL" ]]; then
+            read -rp "$(echo -e "${YELLOW}  OpenAI base URL [${EXISTING_OPENAI_BASE_URL}]: ${RESET}")" new_url
+            EXISTING_OPENAI_BASE_URL="${new_url:-$EXISTING_OPENAI_BASE_URL}"
+        else
+            read -rp "$(echo -e "${YELLOW}  OpenAI base URL (blank for default): ${RESET}")" EXISTING_OPENAI_BASE_URL
         fi
         ;;
     3)
@@ -140,6 +175,9 @@ case "$provider_choice" in
             echo ""
             [[ -n "$EXISTING_ANTHROPIC_KEY" ]] || die "API key cannot be empty."
         fi
+        default_model="${EXISTING_ANTHROPIC_MODEL:-claude-sonnet-4-20250514}"
+        read -rp "$(echo -e "${YELLOW}  Anthropic model [${default_model}]: ${RESET}")" new_model
+        EXISTING_ANTHROPIC_MODEL="${new_model:-$default_model}"
         ;;
     *)
         die "Invalid choice: $provider_choice"
@@ -162,13 +200,22 @@ header "Step 3: Environment configuration"
 
 {
     echo "LLM_PROVIDER=${LLM_PROVIDER}"
+    # Provider-specific settings
+    [[ -n "$EXISTING_OLLAMA_MODEL" ]]      && echo "OLLAMA_MODEL=${EXISTING_OLLAMA_MODEL}"
+    [[ -n "$EXISTING_OLLAMA_BASE_URL" ]]   && echo "OLLAMA_BASE_URL=${EXISTING_OLLAMA_BASE_URL}"
+    [[ -n "$EXISTING_OPENAI_MODEL" ]]      && echo "OPENAI_MODEL=${EXISTING_OPENAI_MODEL}"
+    [[ -n "$EXISTING_OPENAI_BASE_URL" ]]   && echo "OPENAI_BASE_URL=${EXISTING_OPENAI_BASE_URL}"
+    [[ -n "$EXISTING_ANTHROPIC_MODEL" ]]   && echo "ANTHROPIC_MODEL=${EXISTING_ANTHROPIC_MODEL}"
     # Preserve all API keys so switching providers doesn't lose them
-    if [[ -n "$EXISTING_OPENAI_KEY" ]]; then
-        echo "OPENAI_API_KEY=${EXISTING_OPENAI_KEY}"
-    fi
-    if [[ -n "$EXISTING_ANTHROPIC_KEY" ]]; then
-        echo "ANTHROPIC_API_KEY=${EXISTING_ANTHROPIC_KEY}"
-    fi
+    [[ -n "$EXISTING_OPENAI_KEY" ]]        && echo "OPENAI_API_KEY=${EXISTING_OPENAI_KEY}"
+    [[ -n "$EXISTING_ANTHROPIC_KEY" ]]     && echo "ANTHROPIC_API_KEY=${EXISTING_ANTHROPIC_KEY}"
+    # Application settings
+    [[ -n "$EXISTING_EXTRA_SERVICES" ]]    && echo "EXTRA_SERVICES=${EXISTING_EXTRA_SERVICES}"
+    [[ -n "$EXISTING_LOG_PATHS" ]]         && echo "LOG_PATHS=${EXISTING_LOG_PATHS}"
+    # Preserve any unknown/custom settings
+    for key in "${!EXTRA_ENV[@]}"; do
+        echo "${key}=${EXTRA_ENV[$key]}"
+    done
 } > "$ENV_FILE"
 
 chown "${SERVICE_USER}:${SERVICE_USER}" "$ENV_FILE"
@@ -201,6 +248,6 @@ echo ""
 if [[ "$LLM_PROVIDER" == "ollama" ]]; then
     echo -e "${YELLOW}  Reminder:${RESET} Make sure Ollama is running and the model is pulled:"
     echo -e "    ollama serve"
-    echo -e "    ollama pull llama3.1:8b"
+    echo -e "    ollama pull ${EXISTING_OLLAMA_MODEL}"
     echo ""
 fi
