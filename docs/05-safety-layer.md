@@ -22,7 +22,7 @@ The tier is determined at **tool registration time** — when `wrap_tools()` run
 
 ## Configuration Block
 
-The entire configuration lives at the top of `safety.py` (lines 20–91):
+The entire configuration lives at the top of `safety.py` (lines 20–92):
 
 ```python
 # Tools that require user confirmation before execution
@@ -109,7 +109,7 @@ BLOCKED_PATTERNS = [
 
 ## The `wrap_tools()` Dispatcher
 
-`wrap_tools()` (lines 100–108) is the main entry point. It iterates over the tool list and applies the appropriate wrapper:
+`wrap_tools()` (lines 116–124) is the main entry point. It iterates over the tool list and applies the appropriate wrapper:
 
 ```python
     def wrap_tools(self, tools: list, audit_logger=None) -> list:
@@ -335,7 +335,7 @@ All tools use `run_cmd(cmd, timeout)` which calls `subprocess.run(cmd, ...)` wit
 
 ### Code paths through `bash -c`
 
-**`run_command` — freeform shell** (lines 815–832): Takes a user-supplied `command` string and runs `bash -c {command}`. This is the most exposed surface. It relies entirely on `BLOCKED_PATTERNS` and OS permissions for safety.
+**`run_command` — freeform shell** (lines 812–843): Takes a user-supplied `command` string and runs `bash -c {command}`. Bare `cd` commands are intercepted and handled via `os.chdir()` instead (see [Chapter 4 — Tools](04-tools.md#bare-cd-interception)). This is the most exposed surface. It relies on `BLOCKED_PATTERNS` (with normalization) and OS permissions for safety.
 
 **4 tools use `shlex.quote()` on user parameters:**
 

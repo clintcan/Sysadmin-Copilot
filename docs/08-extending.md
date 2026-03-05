@@ -106,7 +106,7 @@ Plugin tools go through the same safety layer as core tools. Here's what was ver
 
 | Concern | Status | Reasoning |
 |---------|--------|-----------|
-| **Plugin tools bypass safety wrapping** | Safe | All plugins are appended to `ALL_TOOLS` before `safety.wrap_tools()` runs. Every plugin tool gets `_wrap_read_tool` (blocked pattern check) or `_wrap_write_tool` (confirmation prompt), identical to core tools. |
+| **Plugin tools bypass safety wrapping** | Safe | All plugins are appended to `ALL_TOOLS` before `safety.wrap_tools()` runs. Every plugin tool gets `_wrap_read_tool` (blocked pattern check) or `_wrap_write_tool` (blocked pattern check + confirmation prompt), identical to core tools. |
 | **Plugin removes entries from `WRITE_TOOLS`** | Safe | The merge is additive (set union). Plugins can only add write-tool declarations, never remove existing ones. |
 | **Plugin shadows a core tool name** | Safe | Both versions end up in `ALL_TOOLS` and both get safety-wrapped. This may cause LangChain to see duplicate tool names (a correctness issue), but neither copy bypasses the safety layer. |
 | **Arbitrary code at import time** | By design | `exec_module()` runs all module-level code in the plugin, not just `@tool` functions. This is inherent to any plugin system. A plugin author has the same trust level as someone editing `tools.py` directly — if they can write to `tools_extra/`, they can write to the core files too. |

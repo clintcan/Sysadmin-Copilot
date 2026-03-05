@@ -244,20 +244,60 @@ ALL_TOOLS = [
 
 The 24 specific tools cover common sysadmin tasks, but investigations often need follow-up commands that no dedicated tool anticipates — reading a `/proc` entry, checking a config file, or running `ip route show`.
 
-`run_command` (`tools.py:815–832`) fills that gap:
+`run_command` (`tools.py:812–843`) fills that gap:
 
 ```python
 @tool
 def run_command(command: str) -> str:
-    """Run a shell command for ad-hoc investigation when no specific tool fits."""
+    """Run a shell command. LAST RESORT — use a specific tool when one exists.
+
+    Only use this when no dedicated tool covers the task. For example, use
+    check_disk_usage for disk checks, query_journal_logs for logs, etc.
+
+    Dangerous commands (rm, dd, shutdown, reboot, etc.) are blocked.
+    Use change_directory to change directories — 'cd' here is temporary.
+
+    Args:
+        command: The shell command to execute.
+    """
+    # Intercept bare 'cd' commands — they don't persist across subprocesses.
+    # Weak models use run_command("cd /path") instead of change_directory.
+    stripped = command.strip()
+    if stripped == "cd" or (
+        stripped.startswith("cd ") and not any(c in stripped for c in ";|&")
+    ):
+        path = stripped[3:].strip() if len(stripped) > 2 else "~"
+        if len(path) >= 2 and path[0] in "\"'" and path[-1] == path[0]:
+            path = path[1:-1]
+        expanded = os.path.expanduser(path or "~")
+        try:
+            os.chdir(expanded)
+            return f"Changed directory to: {os.getcwd()}"
+        except FileNotFoundError:
+            return f"[ERROR] Directory not found: {expanded}"
+        except PermissionError:
+            return f"[ERROR] Permission denied: {expanded}"
+        except Exception as e:
+            return f"[ERROR] {e}"
+
     return run_cmd(["bash", "-c", command])
 ```
 
 It passes the command string through `bash -c`, reusing the same `run_cmd()` helper — 30-second timeout, 8000 char output cap, and error handling all apply.
 
-**Safety**: because `run_command` is not in `WRITE_TOOLS`, it gets wrapped by `_wrap_read_tool()`. The wrapper scans the `command` string against `BLOCKED_PATTERNS` before execution, so attempts to run destructive commands (`rm`, `dd`, `shutdown`, `reboot`, `shred`, `truncate`, `mkfs`, etc.), encoding evasion (`base64 -d | sh`), and dangerous permission changes (`chmod 777`) are blocked. No `sudo` is used, so OS-level permissions further constrain what can run. See [Chapter 5 — Threat Model](05-safety-layer.md#threat-model-and-limitations) for the full coverage table and known limitations.
+The docstring marks `run_command` as a **"LAST RESORT"** — this is deliberate. Weaker/smaller LLMs tend to funnel everything through `run_command` instead of picking specific tools like `check_disk_usage`. Putting "LAST RESORT" in the first line of the docstring (which the LLM reads when deciding which tool to use) helps steer them toward dedicated tools.
 
-The system prompt tells the agent to prefer `run_command` over suggesting commands for the user to run manually.
+### Bare `cd` interception
+
+Weaker models also tend to run `cd /path` inside `run_command` instead of using the `change_directory` tool. Since `run_command` executes via `bash -c`, the `cd` only affects that single subprocess — the parent process's working directory is unchanged, so subsequent tool calls still run in the original directory.
+
+The interception catches bare `cd` commands (without `;`, `|`, or `&` chaining) and applies `os.chdir()` directly, making the directory change persistent. Chained commands like `cd /var/log && ls -la` fall through to normal `bash -c` execution.
+
+### Safety
+
+Because `run_command` is not in `WRITE_TOOLS`, it gets wrapped by `_wrap_read_tool()`. The wrapper normalizes the `command` string (lowercase, collapse whitespace, strip quotes) and checks it against `BLOCKED_PATTERNS` before execution, so attempts to run destructive commands (`rm`, `dd`, `shutdown`, `reboot`, `shred`, `truncate`, `mkfs`, etc.) are blocked even with case variation (`RM`), whitespace tricks (`rm\tfile`), or quote wrapping (`"rm" file`). Encoding evasion (`base64 -d | sh`) and dangerous permission changes (`chmod 777`) are also caught. No `sudo` is used, so OS-level permissions further constrain what can run. See [Chapter 5 — Threat Model](05-safety-layer.md#threat-model-and-limitations) for the full coverage table and known limitations.
+
+The system prompt tells the agent to prefer specific tools over `run_command` and to use `change_directory` for directory changes.
 
 ---
 
