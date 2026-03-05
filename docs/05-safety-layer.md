@@ -127,9 +127,37 @@ The returned list is what gets passed to `create_agent()`. The agent never sees 
 
 ---
 
-## `_wrap_read_tool()` — Audit + Blocked Pattern Check
+## `_check_blocked_patterns()` — Shared Normalization Helper
 
-Lines 110–133:
+Both `_wrap_read_tool` and `_wrap_write_tool` delegate to a shared helper that normalizes argument strings before checking them against `BLOCKED_PATTERNS`:
+
+```python
+def _check_blocked_patterns(args, kwargs, tool_name, audit_logger):
+    """Check tool arguments against BLOCKED_PATTERNS with normalization."""
+    str_values = [v for v in args if isinstance(v, str)]
+    str_values += [v for v in kwargs.values() if isinstance(v, str)]
+    for val in str_values:
+        normalized = re.sub(r"\s+", " ", val.lower()).strip()
+        normalized = re.sub(r"['\"`]", "", normalized)
+        for pattern in BLOCKED_PATTERNS:
+            if pattern in normalized:
+                if audit_logger:
+                    audit_logger.log_command(tool_name, kwargs, blocked=True)
+                return f"[BLOCKED] Dangerous pattern detected: '{pattern}'"
+    return None
+```
+
+The normalization pipeline catches three common evasion techniques:
+
+1. **Case variation** — `val.lower()` catches `RM`, `Rm`, `DD`, `Shutdown`, etc.
+2. **Whitespace tricks** — `re.sub(r"\s+", " ", ...)` collapses tabs, newlines, and multiple spaces into a single space, so `rm\tfile` and `rm  -rf` still match `"rm "`.
+3. **Quote wrapping** — Stripping `'`, `"`, and `` ` `` catches `"rm" file` and `'dd' if=...`.
+
+The check iterates over **individual string values** (not `str(kwargs)`), avoiding false matches against Python's dict/tuple repr syntax. Only actual argument content is inspected.
+
+---
+
+## `_wrap_read_tool()` — Audit + Blocked Pattern Check
 
 ```python
     def _wrap_read_tool(self, t: BaseTool, audit_logger) -> BaseTool:
@@ -138,16 +166,9 @@ Lines 110–133:
 
         @wraps(original_func)
         def wrapped(*args, **kwargs):
-            # Check for blocked patterns against individual string argument values
-            # (avoids false matches against Python's dict/tuple repr syntax)
-            str_values = [v for v in args if isinstance(v, str)]
-            str_values += [v for v in kwargs.values() if isinstance(v, str)]
-            for pattern in BLOCKED_PATTERNS:
-                if any(pattern in val for val in str_values):
-                    msg = f"[BLOCKED] Dangerous pattern detected: '{pattern}'"
-                    if audit_logger:
-                        audit_logger.log_command(t.name, kwargs, blocked=True)
-                    return msg
+            blocked = _check_blocked_patterns(args, kwargs, t.name, audit_logger)
+            if blocked:
+                return blocked
 
             if audit_logger:
                 audit_logger.log_command(t.name, kwargs)
@@ -158,26 +179,15 @@ Lines 110–133:
         return t
 ```
 
-The blocked-pattern check iterates over **individual string values**:
-
-```python
-str_values = [v for v in args if isinstance(v, str)]
-str_values += [v for v in kwargs.values() if isinstance(v, str)]
-```
-
-This is subtle but important. An earlier version checked `str(kwargs)`, which produced Python's dict representation: `"{'path': '/var/log/syslog', 'lines': 50}"`. That string contains `{`, `'`, `:` characters that might accidentally match patterns in `BLOCKED_PATTERNS`, and it includes all the Python syntax noise that isn't actually argument content.
-
-By extracting only the string values, the check is precise: if `grep="shutdown"` is passed as a filter pattern, it's caught; if `grep="check shutdown logs"` is passed as a filter, the substring `"shutdown"` in the value is still caught. Only actual argument content is inspected.
-
 `@wraps(original_func)` preserves the original function's name, docstring, and signature. Without it, LangChain would see a generic `wrapped` function instead of the original tool.
 
-Finally, `t.func = wrapped` replaces the underlying function on the tool object in place and returns the same tool object. The LLM's tool schema (name, description, parameters) is untouched.
+`t.func = wrapped` replaces the underlying function on the tool object in place and returns the same tool object. The LLM's tool schema (name, description, parameters) is untouched.
 
 ---
 
-## `_wrap_write_tool()` — Allowlist + Confirmation
+## `_wrap_write_tool()` — Blocked Patterns + Allowlist + Confirmation
 
-Lines 135–177:
+Write tools now get the same blocked-pattern check as read tools, applied **before** the allowlist and confirmation prompt. This prevents a write tool from ever reaching the confirmation prompt with a dangerous argument like `"rm -rf /"`.
 
 ```python
     def _wrap_write_tool(self, t: BaseTool, audit_logger) -> BaseTool:
@@ -186,6 +196,11 @@ Lines 135–177:
 
         @wraps(original_func)
         def wrapped(*args, **kwargs):
+            # Check for blocked patterns before anything else
+            blocked = _check_blocked_patterns(args, kwargs, t.name, audit_logger)
+            if blocked:
+                return blocked
+
             # Check service allowlist (only for service management tools)
             service = kwargs.get("service")
             if service and service not in self.allowed_services:

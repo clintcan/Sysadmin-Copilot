@@ -11,6 +11,7 @@ Three permission levels:
 """
 
 import os
+import re
 from functools import wraps
 from langchain_core.tools import BaseTool
 
@@ -91,6 +92,21 @@ BLOCKED_PATTERNS = [
 ]
 
 
+def _check_blocked_patterns(args, kwargs, tool_name, audit_logger):
+    """Check tool arguments against BLOCKED_PATTERNS with normalization."""
+    str_values = [v for v in args if isinstance(v, str)]
+    str_values += [v for v in kwargs.values() if isinstance(v, str)]
+    for val in str_values:
+        normalized = re.sub(r"\s+", " ", val.lower()).strip()
+        normalized = re.sub(r"['\"`]", "", normalized)
+        for pattern in BLOCKED_PATTERNS:
+            if pattern in normalized:
+                if audit_logger:
+                    audit_logger.log_command(tool_name, kwargs, blocked=True)
+                return f"[BLOCKED] Dangerous pattern detected: '{pattern}'"
+    return None
+
+
 class SafetyLayer:
     """Wraps tools with confirmation prompts and allowlist checks."""
 
@@ -113,16 +129,9 @@ class SafetyLayer:
 
         @wraps(original_func)
         def wrapped(*args, **kwargs):
-            # Check for blocked patterns against individual string argument values
-            # (avoids false matches against Python's dict/tuple repr syntax)
-            str_values = [v for v in args if isinstance(v, str)]
-            str_values += [v for v in kwargs.values() if isinstance(v, str)]
-            for pattern in BLOCKED_PATTERNS:
-                if any(pattern in val for val in str_values):
-                    msg = f"[BLOCKED] Dangerous pattern detected: '{pattern}'"
-                    if audit_logger:
-                        audit_logger.log_command(t.name, kwargs, blocked=True)
-                    return msg
+            blocked = _check_blocked_patterns(args, kwargs, t.name, audit_logger)
+            if blocked:
+                return blocked
 
             if audit_logger:
                 audit_logger.log_command(t.name, kwargs)
@@ -138,6 +147,11 @@ class SafetyLayer:
 
         @wraps(original_func)
         def wrapped(*args, **kwargs):
+            # Check for blocked patterns before anything else
+            blocked = _check_blocked_patterns(args, kwargs, t.name, audit_logger)
+            if blocked:
+                return blocked
+
             # Check service allowlist (only for service management tools)
             service = kwargs.get("service")
             if service and service not in self.allowed_services:

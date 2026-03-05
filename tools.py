@@ -790,11 +790,10 @@ def search_web(query: str, max_results: int = 5) -> str:
 
 @tool
 def change_directory(path: str) -> str:
-    """Change the working directory for all subsequent tool calls.
+    """Change the working directory. Use this instead of 'cd' in run_command.
 
-    Use this when the user asks to 'cd' somewhere or wants to work in a
-    specific directory. All future run_command calls and other tools that
-    launch subprocesses will run from this directory.
+    This affects all subsequent tool calls. Running 'cd' inside run_command
+    only changes the directory for that single command.
 
     Args:
         path: Directory path to change to (e.g. '/var/log', '/etc/nginx', '~').
@@ -813,22 +812,37 @@ def change_directory(path: str) -> str:
 
 @tool
 def run_command(command: str) -> str:
-    """Run a shell command for ad-hoc investigation when no specific tool fits.
+    """Run a shell command. LAST RESORT — use a specific tool when one exists.
 
-    Useful for reading files, inspecting /proc, listing directories, checking
-    configs, running diagnostic one-liners, killing processes, and quick
-    web lookups with curl.
+    Only use this when no dedicated tool covers the task. For example, use
+    check_disk_usage for disk checks, query_journal_logs for logs, etc.
 
-    To change the working directory persistently, use the change_directory tool
-    instead of running 'cd' here (which only affects a single call). You can
-    also chain commands with && (e.g. 'cd /var/log && ls -la').
-
-    The command runs as the copilot's user with no sudo. Dangerous patterns
-    (rm, dd, shutdown, reboot, etc.) are blocked by the safety layer.
+    Dangerous commands (rm, dd, shutdown, reboot, etc.) are blocked.
+    Use change_directory to change directories — 'cd' here is temporary.
 
     Args:
         command: The shell command to execute.
     """
+    # Intercept bare 'cd' commands — they don't persist across subprocesses.
+    # Weak models use run_command("cd /path") instead of change_directory.
+    stripped = command.strip()
+    if stripped == "cd" or (
+        stripped.startswith("cd ") and not any(c in stripped for c in ";|&")
+    ):
+        path = stripped[3:].strip() if len(stripped) > 2 else "~"
+        if len(path) >= 2 and path[0] in "\"'" and path[-1] == path[0]:
+            path = path[1:-1]
+        expanded = os.path.expanduser(path or "~")
+        try:
+            os.chdir(expanded)
+            return f"Changed directory to: {os.getcwd()}"
+        except FileNotFoundError:
+            return f"[ERROR] Directory not found: {expanded}"
+        except PermissionError:
+            return f"[ERROR] Permission denied: {expanded}"
+        except Exception as e:
+            return f"[ERROR] {e}"
+
     return run_cmd(["bash", "-c", command])
 
 
