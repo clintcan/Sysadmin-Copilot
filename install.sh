@@ -148,6 +148,7 @@ runuser -u "$SERVICE_USER" -- python3 -m venv "${INSTALL_DIR}/.venv"
 
 info "Installing base dependencies..."
 runuser -u "$SERVICE_USER" -- "${INSTALL_DIR}/.venv/bin/pip" install --quiet \
+    "python-dotenv>=1.0" \
     "langchain-core>=0.3" \
     "langgraph>=0.2"
 

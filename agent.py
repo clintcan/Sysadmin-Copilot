@@ -24,6 +24,9 @@ import sys
 import readline  # noqa: F401 — enables arrow keys in input()
 from datetime import datetime
 
+from dotenv import load_dotenv
+load_dotenv()  # loads .env if present; does not override existing env vars
+
 from langchain_core.messages import HumanMessage
 from langchain.agents import create_agent
 
