@@ -38,19 +38,9 @@ The 6 `xfail` tests document known gaps: `python3 -c`, `ruby -e`, `mv` overwrite
 
 Tests whether the LLM picks the correct tool for a natural-language question. Calls the real LLM with the actual tool definitions but does **not execute** any tools — it only inspects which tools the model chose to call.
 
-**Requires a working LLM backend** (set `LLM_PROVIDER` / API keys as usual).
-
 ```bash
-# Uses whatever is in .env
 python -m pytest tests/test_tool_selection.py -v -s
-
-# Test a specific provider
-LLM_PROVIDER=openai python -m pytest tests/test_tool_selection.py -v -s
-LLM_PROVIDER=anthropic python -m pytest tests/test_tool_selection.py -v -s
-LLM_PROVIDER=ollama OLLAMA_MODEL=llama3.1:8b python -m pytest tests/test_tool_selection.py -v -s
 ```
-
-Use `-s` to see which tools the model selected for each question.
 
 **30 test cases** covering all 7 tool categories:
 
@@ -65,15 +55,92 @@ Use `-s` to see which tools the model selected for each question.
 | General purpose | 2 | "Show me the routing table" → `run_command` |
 | Ambiguous | 2 | "The website is down" → any of several tools |
 
-Each test case defines a set of **acceptable tools** — the eval passes if the model's first tool call is in that set. Open-ended questions (like "Why is the server slow?") accept multiple tools since there are several valid first steps.
+Each test defines a set of **acceptable tools** — the eval passes if the model's first tool call is in that set.
 
-**Baseline results:**
+---
 
-| Model | Score | Notes |
-|-------|-------|-------|
-| gpt-4o-mini | 29/30 (97%) | Only miss: checked outdated packages before updating (cautious, not wrong) |
+### `test_anti_hallucination.py` — Anti-Hallucination Evals
 
-Run against different models to compare tool selection quality — especially useful when evaluating smaller/local models.
+Tests whether the LLM calls a tool first rather than fabricating output. The system prompt says "never guess or make up command results" — weaker models sometimes ignore this and invent plausible-looking output.
+
+```bash
+python -m pytest tests/test_anti_hallucination.py -v -s
+```
+
+**21 tests** in two groups:
+
+| Group | Tests | What it validates |
+|-------|-------|-------------------|
+| `test_calls_tool_before_answering` | 18 | Factual questions (disk, memory, services, logs, ports, DNS, etc.) must trigger a tool call — text-only answers are hallucination |
+| `test_no_unnecessary_tool_call` | 3 | Meta/conversational questions ("What tools do you have?") should be answered directly without calling tools (soft check) |
+
+The 18 factual questions are designed to be tempting to hallucinate — the model could easily invent plausible disk numbers, fake service lists, or made-up log entries instead of actually checking.
+
+---
+
+### `test_argument_quality.py` — Argument Quality Evals
+
+Tests whether the LLM fills in tool parameters correctly from natural-language input. Each tool's docstring includes `Args:` descriptions — this eval checks if the model reads and applies them properly.
+
+```bash
+python -m pytest tests/test_argument_quality.py -v -s
+```
+
+**19 test cases** covering parameter mapping across tool categories:
+
+| Tool | Tests | What it checks |
+|------|-------|----------------|
+| `query_journal_logs` | 5 | unit, priority, since, lines, grep — correctly extracted from natural language |
+| `read_log_file` | 2 | path, lines, grep filter |
+| Service tools | 3 | Service name extracted correctly |
+| `ping_host` | 1 | Host and count |
+| `dns_lookup` | 1 | Domain name |
+| `check_url_health` | 1 | Full URL preserved |
+| `check_directory_size` | 1 | Path |
+| `check_disk_usage` | 1 | Mount/path |
+| `find_recent_files` | 1 | Path and minutes (tests day→minute conversion) |
+| `check_top_processes` | 1 | Custom count |
+| `check_dmesg` | 1 | Level filter |
+| `run_command` | 1 | Correct Linux command string |
+
+Uses flexible matchers (`eq`, `contains`, `one_of`) rather than exact string comparison, since models may phrase arguments slightly differently (e.g. "1 hour ago" vs "1h ago").
+
+---
+
+## Baseline Results
+
+All LLM evals require a working backend. Set `LLM_PROVIDER` / API keys as usual.
+
+```bash
+# Test a specific provider
+LLM_PROVIDER=openai python -m pytest tests/ -v -s
+LLM_PROVIDER=anthropic python -m pytest tests/ -v -s
+LLM_PROVIDER=ollama OLLAMA_MODEL=llama3.1:8b python -m pytest tests/ -v -s
+```
+
+| Eval | gpt-4o-mini | llama3.1:8b | qwen3.5 |
+|------|-------------|-------------|---------|
+| Safety (no LLM) | 122/122 | 122/122 | 122/122 |
+| Tool selection | 29/30 (97%) | 29/30 (97%) | 29/30 (97%) |
+| Anti-hallucination | 21/21 (100%) | 21/21 (100%) | 21/21 (100%) |
+| Argument quality | 19/19 (100%) | 18/19 (95%) | 19/19 (100%) |
+| **Total** | **191/192 (99.5%)** | **190/192 (99%)** | **191/192 (99.5%)** |
+
+### Notable findings
+
+**Tool selection — all 97% but for different reasons:**
+- **gpt-4o-mini** misses vary between runs (non-deterministic even at temperature=0). Observed: "update packages" → checked outdated first (cautious); "website is down" → text response instead of a tool call (asked clarifying questions). It does correctly use `run_command` for `/proc/cpuinfo` where the local models fail.
+- **llama3.1:8b** consistently uses `read_log_file` for `/proc/cpuinfo` instead of `run_command`. This would fail at runtime because `read_log_file` has a path allowlist restricted to `/var/log`. The model sees a file path and reaches for the file-reading tool — reasonable instinct, wrong tool.
+- **qwen3.5** has the same `/proc/cpuinfo` miss as llama3.1:8b — both local models treat it as a log file to read rather than a general command to run. This suggests the `run_command` docstring's "LAST RESORT" wording may be too discouraging for local models.
+
+**Argument quality — the differentiator:**
+- **gpt-4o-mini** and **qwen3.5** both score 100%. qwen3.5 correctly converted "2 days" to `minutes=2880` and even populated optional parameters like `sort_by="cpu"` unprompted.
+- **llama3.1:8b** converted "2 days" to `minutes=120` (2 hours) — a math error (confused days with hours). Otherwise identical to the other models.
+
+**Anti-hallucination — universal pass:**
+- All three models score 100%. None fabricated output — every factual question triggered a tool call. The system prompt directive ("only report information from tool output") is working across all providers and model sizes.
+
+Use `-s` flag to see per-test details (which tools were selected, what arguments were passed).
 
 ---
 
@@ -83,8 +150,8 @@ Run against different models to compare tool selection quality — especially us
 # Safety evals only (fast, no LLM needed)
 python -m pytest tests/test_safety.py -v
 
-# Tool selection evals only (needs LLM, ~30-60s)
-python -m pytest tests/test_tool_selection.py -v -s
+# All LLM evals (~3-5 min depending on model)
+python -m pytest tests/test_tool_selection.py tests/test_anti_hallucination.py tests/test_argument_quality.py -v -s
 
 # Everything
 python -m pytest tests/ -v -s
