@@ -304,6 +304,23 @@ Layer 3: OS Permissions      — service account + sudoers limit what can actual
 
 It cannot `rm` system files, write to `/dev`, or `shutdown` the host — the OS won't allow it regardless of what the Python layer does.
 
+### Model behavior and the safety layer
+
+LLM eval testing (see `tests/README.md`) revealed that different models handle boundary situations differently — and the safety layer's importance varies accordingly.
+
+**Larger/cloud models (e.g. gpt-4o-mini) tend to self-censor.** When asked to read `/etc/shadow` or restart a microwave, they refuse in text without ever calling a tool. This gives you two layers of defense: the model's own judgment plus the Python safety layer.
+
+**Smaller/local models (e.g. llama3.1:8b) tend to attempt the action.** When asked to restart sshd (not in `ALLOWED_SERVICES`) or read `/etc/shadow` (not under `/var/log`), they call the tool and let the safety layer reject it. This is not a flaw — it's the expected behavior the safety layer was designed for. The system prompt even says "call the tool — the safety layer will handle confirmation."
+
+The practical implication:
+
+- With larger models, the safety layer is a **backup** — the model usually self-censors first.
+- With smaller models, the safety layer is the **primary defense** — the model will try anything you ask.
+
+**The safety layer is non-optional regardless of model size.** Even larger models can be tricked via prompt injection. But with smaller models, the stakes are higher: without `wrap_tools()`, every tool call would execute directly. Never pass unwrapped tools to the agent, and always run as the least-privilege service account (see [Chapter 7 — Installation](07-configuration.md)).
+
+All three tested models (gpt-4o-mini, llama3.1:8b, qwen3.5) scored 5/5 on negation handling — none called `restart_service` or `stop_service` when explicitly told not to. This is the most safety-relevant eval result: the models respect "don't" even when the action keyword is present.
+
 ### Blocked pattern coverage
 
 | Category | Patterns | Catches |

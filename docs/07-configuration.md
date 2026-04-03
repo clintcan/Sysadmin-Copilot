@@ -22,6 +22,17 @@ Switching providers requires no code changes. The `get_llm()` function in `agent
 
 When `OPENAI_BASE_URL` is set, the startup message shows the endpoint: `Using OpenAI-compatible (my-model) at http://localhost:1234/v1`.
 
+### Choosing a model — safety considerations
+
+All three tested backends (gpt-4o-mini, llama3.1:8b, qwen3.5) score above 99% on the eval suite (see `tests/README.md`), but they behave differently at the boundary:
+
+- **Larger/cloud models** (gpt-4o-mini, Anthropic) tend to self-censor — they refuse dangerous requests in text before calling a tool. This gives you defense from both the model and the safety layer.
+- **Smaller/local models** (llama3.1:8b, qwen3.5) tend to attempt the action and rely on the safety layer to block it. The safety layer handles this correctly, but there is no model-level backup.
+
+Both strategies are valid — the safety layer was designed to be the primary defense regardless of model. However, if you use a small or untested model, the safety layer and the service account's OS permissions become your only protection. Never bypass `wrap_tools()`, and always run as the least-privilege service account in production.
+
+For a detailed analysis, see [Chapter 5 — Model Behavior and the Safety Layer](05-safety-layer.md#model-behavior-and-the-safety-layer).
+
 ---
 
 ## Environment Variables Reference
