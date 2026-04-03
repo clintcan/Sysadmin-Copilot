@@ -217,7 +217,7 @@ EVAL_CASES = [
         "journal — priority=warning, since=today",
     ),
 
-    # ── read_log_file ────────────────────────────────────────────────────
+    # ── read_log_file (4) ──────────────────────────────────────────────────
     (
         "Show me the last 200 lines of /var/log/syslog",
         "read_log_file",
@@ -236,15 +236,33 @@ EVAL_CASES = [
         },
         "log file — path and grep filter",
     ),
+    (
+        "Show me the last 500 lines of /var/log/kern.log",
+        "read_log_file",
+        {
+            "path": eq("/var/log/kern.log"),
+            "lines": one_of(500, "500"),
+        },
+        "log file — kern.log with custom line count",
+    ),
+    (
+        "Search /var/log/syslog for 'segfault'",
+        "read_log_file",
+        {
+            "path": eq("/var/log/syslog"),
+            "grep": contains("segfault"),
+        },
+        "log file — syslog with grep for segfault",
+    ),
 
-    # ── Service management ───────────────────────────────────────────────
+    # ── Service management (5) ───────────────────────────────────────────
     (
         "Check the status of postgresql",
         "check_service_status",
         {
             "service": one_of("postgresql", "postgresql.service"),
         },
-        "service status — correct service name",
+        "service status — postgresql",
     ),
     (
         "Restart nginx",
@@ -252,7 +270,7 @@ EVAL_CASES = [
         {
             "service": one_of("nginx", "nginx.service"),
         },
-        "restart — correct service name",
+        "restart — nginx",
     ),
     (
         "Stop the redis service",
@@ -260,10 +278,26 @@ EVAL_CASES = [
         {
             "service": one_of("redis", "redis.service", "redis-server", "redis-server.service"),
         },
-        "stop — correct service name",
+        "stop — redis",
+    ),
+    (
+        "Is the docker daemon active?",
+        "check_service_status",
+        {
+            "service": one_of("docker", "docker.service", "dockerd"),
+        },
+        "service status — docker",
+    ),
+    (
+        "Restart the MySQL database server",
+        "restart_service",
+        {
+            "service": one_of("mysql", "mysql.service", "mysqld", "mysqld.service", "mariadb", "mariadb.service"),
+        },
+        "restart — mysql/mariadb",
     ),
 
-    # ── Network tools ────────────────────────────────────────────────────
+    # ── Network tools (6) ────────────────────────────────────────────────
     (
         "Ping google.com 10 times",
         "ping_host",
@@ -289,15 +323,40 @@ EVAL_CASES = [
         },
         "URL health — URL passed correctly",
     ),
+    (
+        "Ping 10.0.0.1 five times",
+        "ping_host",
+        {
+            "host": eq("10.0.0.1"),
+            "count": one_of(5, "5"),
+        },
+        "ping — IP address with spelled-out count",
+    ),
+    (
+        "Look up the DNS for api.github.com",
+        "dns_lookup",
+        {
+            "domain": one_of("api.github.com"),
+        },
+        "DNS — subdomain",
+    ),
+    (
+        "Is http://localhost:8080 responding?",
+        "check_url_health",
+        {
+            "url": contains("localhost:8080"),
+        },
+        "URL health — localhost with port",
+    ),
 
-    # ── File system tools ────────────────────────────────────────────────
+    # ── File system tools (5) ────────────────────────────────────────────
     (
         "How big is the /home directory?",
         "check_directory_size",
         {
             "path": eq("/home"),
         },
-        "directory size — correct path",
+        "directory size — /home",
     ),
     (
         "Check disk usage on /var",
@@ -305,39 +364,80 @@ EVAL_CASES = [
         {
             "path": one_of("/var", "/var/"),
         },
-        "disk usage — correct mount/path",
+        "disk usage — /var",
     ),
     (
         "What files were changed in /var/log in the last 2 days?",
         "find_recent_files",
         {
             "path": one_of("/var/log", "/var/log/"),
-            "minutes": one_of(2880, "2880", 2 * 24 * 60),  # 2 days in minutes
+            "minutes": one_of(2880, "2880", 2 * 24 * 60),
         },
-        "recent files — path and minutes (2 days = 2880 min)",
+        "recent files — 2 days = 2880 min",
+    ),
+    (
+        "How much space is the /opt directory using?",
+        "check_directory_size",
+        {
+            "path": one_of("/opt", "/opt/"),
+        },
+        "directory size — /opt",
+    ),
+    (
+        "Find files modified in /tmp in the last 30 minutes",
+        "find_recent_files",
+        {
+            "path": one_of("/tmp", "/tmp/"),
+            "minutes": one_of(30, "30"),
+        },
+        "recent files — 30 minutes exact",
     ),
 
-    # ── Top processes with count ─────────────────────────────────────────
+    # ── Top processes (3) ────────────────────────────────────────────────
     (
         "Show me the top 20 processes by CPU usage",
         "check_top_processes",
         {
             "count": one_of(20, "20"),
         },
-        "top processes — custom count",
+        "top processes — count 20",
+    ),
+    (
+        "Show the 5 biggest memory consumers",
+        "check_top_processes",
+        {
+            "count": one_of(5, "5"),
+        },
+        "top processes — count 5 by memory",
+    ),
+    (
+        "List the top 3 processes",
+        "check_top_processes",
+        {
+            "count": one_of(3, "3"),
+        },
+        "top processes — count 3",
     ),
 
-    # ── dmesg with level filter ──────────────────────────────────────────
+    # ── dmesg (2) ────────────────────────────────────────────────────────
     (
         "Show me error-level kernel messages",
         "check_dmesg",
         {
             "level": one_of("err", "error"),
         },
-        "dmesg — level filter",
+        "dmesg — error level",
+    ),
+    (
+        "Show me warning-level dmesg output",
+        "check_dmesg",
+        {
+            "level": one_of("warn", "warning"),
+        },
+        "dmesg — warning level",
     ),
 
-    # ── run_command — verify the actual command string ────────────────────
+    # ── run_command (3) ──────────────────────────────────────────────────
     (
         "Show me the routing table",
         "run_command",
@@ -347,7 +447,23 @@ EVAL_CASES = [
                 "route -n", "netstat -rn",
             ),
         },
-        "run_command — correct Linux command for routing table",
+        "run_command — routing table",
+    ),
+    (
+        "Show me the current iptables rules",
+        "run_command",
+        {
+            "command": contains("iptables"),
+        },
+        "run_command — iptables",
+    ),
+    (
+        "Run the hostname command",
+        "run_command",
+        {
+            "command": one_of("hostname", "hostname -f", "cat /etc/hostname"),
+        },
+        "run_command — hostname",
     ),
 ]
 

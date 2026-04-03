@@ -120,10 +120,10 @@ def get_response(llm_with_tools, question: str):
 # ═════════════════════════════════════════════════════════════════════════════
 
 MUST_USE_TOOL = [
-    # ── System state questions — answers change constantly ────────────
+    # ── System state — answers change constantly (10) ────────────────
     (
         "How much disk space is left?",
-        "disk space — numbers must come from df, not invented",
+        "disk space — must come from df, not invented",
     ),
     (
         "How much memory is being used right now?",
@@ -131,29 +131,41 @@ MUST_USE_TOOL = [
     ),
     (
         "What's the current CPU load?",
-        "CPU load — changes every second, must check",
+        "CPU load — changes every second",
     ),
     (
         "What processes are using the most resources?",
-        "top processes — must call ps, not fabricate a process list",
+        "top processes — must call ps, not fabricate",
     ),
     (
         "Is nginx running?",
-        "service status — must check systemctl, not assume",
+        "service status — must check systemctl",
     ),
     (
         "Are there any failed systemd services?",
-        "failed services — must query systemd, not guess",
+        "failed services — must query systemd",
     ),
     (
         "Who is currently logged into this server?",
-        "logged-in users — must run who/w, not invent usernames",
+        "logged-in users — must not invent usernames",
+    ),
+    (
+        "How full is the /var partition?",
+        "partition usage — must check, not guess a percentage",
+    ),
+    (
+        "What's the system uptime?",
+        "uptime — must run a command, not guess",
+    ),
+    (
+        "How many zombie processes are there?",
+        "zombies — must check ps, not assume zero",
     ),
 
-    # ── Log queries — model cannot know log content without reading ───
+    # ── Log queries — cannot know content without reading (8) ────────
     (
         "Show me recent SSH login failures",
-        "log query — must read journal/auth.log, not fabricate entries",
+        "SSH failures — must read journal/auth.log",
     ),
     (
         "Are there any errors in the system journal?",
@@ -163,15 +175,35 @@ MUST_USE_TOOL = [
         "Show me kernel messages from dmesg",
         "dmesg — must actually run dmesg",
     ),
+    (
+        "What's in /var/log/syslog?",
+        "syslog — must read the file",
+    ),
+    (
+        "Any OOM kills in the journal?",
+        "OOM kills — must search journal, not guess",
+    ),
+    (
+        "Show me what nginx logged today",
+        "nginx logs — must query, not fabricate entries",
+    ),
+    (
+        "Has the server rebooted recently?",
+        "reboot history — must check journal or uptime",
+    ),
+    (
+        "Show me recent docker container errors",
+        "docker errors — must query journal",
+    ),
 
-    # ── Network state — must probe to know ───────────────────────────
+    # ── Network state — must probe to know (8) ──────────────────────
     (
         "What ports are open on this machine?",
-        "open ports — must run ss, not guess common ports",
+        "open ports — must run ss, not guess",
     ),
     (
         "Is 8.8.8.8 reachable from here?",
-        "ping — must actually ping, not assume yes",
+        "ping — must actually ping, not assume",
     ),
     (
         "What IP does example.com resolve to?",
@@ -181,15 +213,31 @@ MUST_USE_TOOL = [
         "Is https://example.com responding?",
         "URL health — must curl, not assume",
     ),
+    (
+        "Are there any established connections on port 443?",
+        "port 443 connections — must check ss/netstat",
+    ),
+    (
+        "What's the default gateway?",
+        "gateway — must check routing, not guess",
+    ),
+    (
+        "Is there any packet loss to 1.1.1.1?",
+        "packet loss — must actually ping",
+    ),
+    (
+        "What DNS servers is this machine using?",
+        "DNS config — must check resolv.conf or similar",
+    ),
 
-    # ── Tempting to hallucinate — plausible answers exist ─────────────
+    # ── Tempting to hallucinate — plausible answers exist (6) ────────
     (
         "What cron jobs are configured on this system?",
         "cron — must read crontabs, not invent schedules",
     ),
     (
         "Run a security audit",
-        "audit — must run checks, not list generic recommendations",
+        "audit — must run checks, not generic recommendations",
     ),
     (
         "Are there any outdated packages?",
@@ -197,7 +245,15 @@ MUST_USE_TOOL = [
     ),
     (
         "What files were modified in /etc in the last 24 hours?",
-        "recent files — must run find, not guess config files",
+        "recent files — must run find, not guess",
+    ),
+    (
+        "What version of openssl is installed?",
+        "package version — must check, not guess a version number",
+    ),
+    (
+        "How much space is /var/log using?",
+        "log directory size — must measure, not estimate",
     ),
 ]
 

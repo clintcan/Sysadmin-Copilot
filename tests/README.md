@@ -17,7 +17,7 @@ Pure Python tests for the blocked-pattern detection, normalization, service allo
 python -m pytest tests/test_safety.py -v
 ```
 
-**122 tests** across 8 groups:
+**128 tests** across 8 groups:
 
 | Group | Tests | What it validates |
 |-------|-------|-------------------|
@@ -42,18 +42,18 @@ Tests whether the LLM picks the correct tool for a natural-language question. Ca
 python -m pytest tests/test_tool_selection.py -v -s
 ```
 
-**30 test cases** covering all 7 tool categories:
+**57 test cases** covering all 7 tool categories, with multiple phrasings per tool:
 
 | Category | Tests | Example question |
 |----------|-------|------------------|
-| Logs | 4 | "Show me kernel messages" → `check_dmesg` |
-| System health | 7 | "How much RAM is being used?" → `check_memory` |
-| Services | 4 | "Restart the nginx service" → `restart_service` |
-| Network | 5 | "Can we reach 8.8.8.8?" → `ping_host` |
-| Users & files | 3 | "Show me the cron jobs" → `check_cron_jobs` |
-| Security | 3 | "Run a security audit" → `system_audit` |
-| General purpose | 2 | "Show me the routing table" → `run_command` |
-| Ambiguous | 2 | "The website is down" → any of several tools |
+| Logs | 8 | "Show me kernel messages" → `check_dmesg` |
+| System health | 12 | "How much RAM is being used?" → `check_memory` |
+| Services | 8 | "Bring nginx back up" → `restart_service` |
+| Network | 8 | "Check connectivity to 10.0.0.1" → `ping_host` |
+| Users & files | 6 | "Any new files created in /tmp recently?" → `find_recent_files` |
+| Security | 6 | "Patch the system" → `update_packages` |
+| General purpose | 4 | "Show me the ARP table" → `run_command` |
+| Ambiguous | 5 | "The app is throwing 502 errors" → any of several tools |
 
 Each test defines a set of **acceptable tools** — the eval passes if the model's first tool call is in that set.
 
@@ -67,14 +67,14 @@ Tests whether the LLM calls a tool first rather than fabricating output. The sys
 python -m pytest tests/test_anti_hallucination.py -v -s
 ```
 
-**21 tests** in two groups:
+**35 tests** in two groups:
 
 | Group | Tests | What it validates |
 |-------|-------|-------------------|
-| `test_calls_tool_before_answering` | 18 | Factual questions (disk, memory, services, logs, ports, DNS, etc.) must trigger a tool call — text-only answers are hallucination |
+| `test_calls_tool_before_answering` | 32 | Factual questions (disk, memory, services, logs, ports, DNS, uptime, swap, package versions, etc.) must trigger a tool call — text-only answers are hallucination |
 | `test_no_unnecessary_tool_call` | 3 | Meta/conversational questions ("What tools do you have?") should be answered directly without calling tools (soft check) |
 
-The 18 factual questions are designed to be tempting to hallucinate — the model could easily invent plausible disk numbers, fake service lists, or made-up log entries instead of actually checking.
+The 32 factual questions are designed to be tempting to hallucinate — the model could easily invent plausible disk numbers, fake service lists, made-up log entries, or guessed package versions instead of actually checking.
 
 ---
 
@@ -86,22 +86,22 @@ Tests whether the LLM fills in tool parameters correctly from natural-language i
 python -m pytest tests/test_argument_quality.py -v -s
 ```
 
-**19 test cases** covering parameter mapping across tool categories:
+**33 test cases** covering parameter mapping across tool categories:
 
 | Tool | Tests | What it checks |
 |------|-------|----------------|
 | `query_journal_logs` | 5 | unit, priority, since, lines, grep — correctly extracted from natural language |
-| `read_log_file` | 2 | path, lines, grep filter |
-| Service tools | 3 | Service name extracted correctly |
-| `ping_host` | 1 | Host and count |
-| `dns_lookup` | 1 | Domain name |
-| `check_url_health` | 1 | Full URL preserved |
-| `check_directory_size` | 1 | Path |
+| `read_log_file` | 4 | path, lines, grep filter — multiple log files and search terms |
+| Service tools | 5 | Service name for status, restart, stop — nginx, postgresql, redis, docker, mysql |
+| `ping_host` | 2 | Host (domain and IP) and count (numeric and spelled out) |
+| `dns_lookup` | 2 | Domain and subdomain |
+| `check_url_health` | 2 | External URL and localhost with port |
+| `check_directory_size` | 2 | /home and /opt paths |
 | `check_disk_usage` | 1 | Mount/path |
-| `find_recent_files` | 1 | Path and minutes (tests day→minute conversion) |
-| `check_top_processes` | 1 | Custom count |
-| `check_dmesg` | 1 | Level filter |
-| `run_command` | 1 | Correct Linux command string |
+| `find_recent_files` | 2 | Day-to-minute conversion and exact minute values |
+| `check_top_processes` | 3 | Custom counts: 3, 5, 20 |
+| `check_dmesg` | 2 | Error and warning level filters |
+| `run_command` | 3 | Routing table, iptables, hostname — correct Linux commands |
 
 Uses flexible matchers (`eq`, `contains`, `one_of`) rather than exact string comparison, since models may phrase arguments slightly differently (e.g. "1 hour ago" vs "1h ago").
 
@@ -115,16 +115,16 @@ Harder tests designed to trip up weaker/smaller models. Goes beyond straightforw
 python -m pytest tests/test_challenging.py -v -s
 ```
 
-**29 tests** across 6 groups:
+**63 tests** across 6 groups:
 
 | Group | Tests | What it validates |
 |-------|-------|-------------------|
-| `TestNegation` | 5 | "Don't restart, just check" — model must NOT call destructive tools when told not to. Safety-relevant. |
-| `TestParaphrased` | 7 | Informal/slang language: "box choking", "hogging pipes", "bleeding disk" — no tool names or technical terms |
-| `TestDistraction` | 4 | Irrelevant preamble, emotional context, hypothetical scenarios — model must focus on the actual request |
-| `TestTrickyParameters` | 6 | "Last Tuesday", "between 2am and 4am", "half an hour", "a thousand lines", "couple of days", "critical stuff" |
-| `TestAmbiguous` | 4 | Vague requests: "something feels off", "it's slow", "users are complaining" — must pick a reasonable first step |
-| `TestBoundary` | 3 | Edge cases: unlisted service restart, sensitive file access, impossible task ("restart the microwave") |
+| `TestNegation` | 14 | "Don't restart", "skip the restart", "without restarting", "just look don't touch", "leave it alone", "read-only investigation" — model must NOT call destructive tools. Safety-relevant. |
+| `TestParaphrased` | 15 | Informal/slang: "box choking", "hogging pipes", "bleeding disk", "DNS wonky", "box is on fire", "leaking memory", "are we dead" — no technical terms |
+| `TestDistraction` | 8 | Irrelevant preamble, emotional context, hypothetical scenarios, past-tense actions, mentions of "rm", noise words — model must focus on the actual request |
+| `TestTrickyParameters` | 12 | "Last Tuesday", "between 2am and 4am", "half an hour", "since midnight", "last 15 minutes", "past week", "a thousand lines", "fifty lines", "three times", "emergency-level" |
+| `TestAmbiguous` | 8 | Vague requests: "something feels off", "it's slow", "it's not working", "users complaining", "help me investigate", "triage this server" |
+| `TestBoundary` | 6 | Unlisted service restart, sensitive file access (/etc/shadow, SSH keys), impossible task, delete request, shutdown request |
 
 ---
 
@@ -139,14 +139,16 @@ LLM_PROVIDER=anthropic python -m pytest tests/ -v -s
 LLM_PROVIDER=ollama OLLAMA_MODEL=llama3.1:8b python -m pytest tests/ -v -s
 ```
 
-| Eval | gpt-4o-mini | llama3.1:8b | qwen3.5 |
-|------|-------------|-------------|---------|
-| Safety (no LLM) | 122/122 | 122/122 | 122/122 |
-| Tool selection | 29/30 (97%) | 29/30 (97%) | 29/30 (97%) |
-| Anti-hallucination | 21/21 (100%) | 21/21 (100%) | 21/21 (100%) |
-| Argument quality | 19/19 (100%) | 18/19 (95%) | 19/19 (100%) |
-| Challenging | 28/29 (97%) | 28/29 (97%) | 27/29 (93%) |
-| **Total** | **219/221 (99%)** | **218/221 (99%)** | **218/221 (99%)** |
+| Eval | Tests | gpt-4o-mini | llama3.1:8b | qwen3.5 |
+|------|-------|-------------|-------------|---------|
+| Safety (no LLM) | 128 | 128/128 | 128/128 | 128/128 |
+| Tool selection | 57 | 57/57 (100%) | — | — |
+| Anti-hallucination | 35 | 35/35 (100%) | — | — |
+| Argument quality | 33 | 33/33 (100%) | — | — |
+| Challenging | 63 | 63/63 (100%) | — | — |
+| **Total** | **316** | **316/316 (100%)** | — | — |
+
+*Baselines for llama3.1:8b and qwen3.5 pending re-run against expanded suite. Previous results on the smaller suite (221 tests): llama3.1:8b 218/221 (99%), qwen3.5 218/221 (99%).*
 
 ### Notable findings
 
@@ -188,7 +190,7 @@ Use `-s` flag to see per-test details (which tools were selected, what arguments
 # Safety evals only (fast, no LLM needed)
 python -m pytest tests/test_safety.py -v
 
-# All LLM evals (~5-8 min depending on model)
+# All LLM evals (~5-10 min depending on model)
 python -m pytest tests/test_tool_selection.py tests/test_anti_hallucination.py tests/test_argument_quality.py tests/test_challenging.py -v -s
 
 # Everything

@@ -117,171 +117,309 @@ def get_selected_tools(llm_with_tools, question: str) -> list[str]:
 # ═════════════════════════════════════════════════════════════════════════════
 
 EVAL_CASES = [
-    # ── Logs ──────────────────────────────────────────────────────────────
+    # ── Logs (8) ─────────────────────────────────────────────────────────
     (
         "Show me the last 50 lines of nginx logs",
         {"query_journal_logs", "read_log_file"},
-        "log query — should use journal or log file tool",
+        "logs: nginx logs — journal or file",
     ),
     (
         "Are there any errors in the system journal from the last hour?",
         {"query_journal_logs"},
-        "journal query with time filter",
+        "logs: journal errors with time filter",
     ),
     (
         "Show me kernel messages",
         {"check_dmesg"},
-        "kernel log — should use dmesg",
+        "logs: kernel — should use dmesg",
     ),
     (
         "Check /var/log/auth.log for failed login attempts",
         {"read_log_file"},
-        "specific log file read",
+        "logs: specific file path",
+    ),
+    (
+        "What did sshd log recently?",
+        {"query_journal_logs"},
+        "logs: service journal query",
+    ),
+    (
+        "Show me the latest syslog entries",
+        {"query_journal_logs", "read_log_file"},
+        "logs: syslog — either approach valid",
+    ),
+    (
+        "Are there any warnings in the journal for docker?",
+        {"query_journal_logs"},
+        "logs: journal with unit + priority",
+    ),
+    (
+        "Check dmesg for hardware errors",
+        {"check_dmesg"},
+        "logs: dmesg with context",
     ),
 
-    # ── System health ────────────────────────────────────────────────────
+    # ── System health (12) ───────────────────────────────────────────────
     (
         "How much disk space is left?",
         {"check_disk_usage"},
-        "disk space check",
+        "health: disk space",
     ),
     (
         "How big is the /var/log directory?",
         {"check_directory_size"},
-        "directory size — should use check_directory_size not disk_usage",
+        "health: directory size",
     ),
     (
         "How much RAM is being used?",
         {"check_memory"},
-        "memory check",
+        "health: memory — RAM",
     ),
     (
         "What's the CPU load right now?",
         {"check_cpu_and_load"},
-        "CPU/load check",
+        "health: CPU load",
     ),
     (
         "What processes are using the most CPU?",
         {"check_top_processes"},
-        "top processes",
+        "health: top processes",
     ),
     (
         "Are there any zombie processes?",
         {"find_zombie_processes"},
-        "zombie process check",
+        "health: zombie processes",
     ),
     (
         "Why is the server running slow?",
         {"check_cpu_and_load", "check_memory", "check_top_processes"},
-        "open-ended performance — any health tool is acceptable as first step",
+        "health: open-ended performance",
+    ),
+    (
+        "Is the filesystem filling up?",
+        {"check_disk_usage"},
+        "health: filesystem — alt phrasing",
+    ),
+    (
+        "How much storage is available on /home?",
+        {"check_disk_usage"},
+        "health: storage on specific mount",
+    ),
+    (
+        "What's the swap usage?",
+        {"check_memory"},
+        "health: swap — part of memory tool",
+    ),
+    (
+        "Show me system resource utilization",
+        {"check_cpu_and_load", "check_memory", "check_top_processes"},
+        "health: general resource check",
+    ),
+    (
+        "What's hogging all the disk space in /var?",
+        {"check_directory_size"},
+        "health: directory size — investigative",
     ),
 
-    # ── Services ─────────────────────────────────────────────────────────
+    # ── Services (8) ─────────────────────────────────────────────────────
     (
         "Is nginx running?",
         {"check_service_status"},
-        "service status check",
+        "services: status check",
     ),
     (
         "Are there any failed services?",
         {"list_failed_services"},
-        "failed services check",
+        "services: failed list",
     ),
     (
         "Restart the nginx service",
         {"restart_service"},
-        "service restart — must use restart_service not run_command",
+        "services: restart",
     ),
     (
         "Stop postgresql",
         {"stop_service"},
-        "service stop",
+        "services: stop",
+    ),
+    (
+        "What's the status of the docker daemon?",
+        {"check_service_status"},
+        "services: status — alt phrasing",
+    ),
+    (
+        "Is redis up and running?",
+        {"check_service_status"},
+        "services: status — informal",
+    ),
+    (
+        "Bring nginx back up",
+        {"restart_service"},
+        "services: restart — informal phrasing",
+    ),
+    (
+        "Which systemd services have crashed?",
+        {"list_failed_services"},
+        "services: failed — alt phrasing",
     ),
 
-    # ── Network ──────────────────────────────────────────────────────────
+    # ── Network (8) ──────────────────────────────────────────────────────
     (
         "What ports are open on this machine?",
         {"check_open_ports"},
-        "open ports check",
+        "network: open ports",
     ),
     (
         "Show me active network connections",
         {"check_network_connections"},
-        "network connections",
+        "network: connections",
     ),
     (
         "Can we reach 8.8.8.8?",
         {"ping_host"},
-        "ping check",
+        "network: ping",
     ),
     (
         "What IP does example.com resolve to?",
         {"dns_lookup"},
-        "DNS lookup",
+        "network: DNS lookup",
     ),
     (
         "Is https://example.com responding?",
         {"check_url_health"},
-        "URL health check",
+        "network: URL health",
+    ),
+    (
+        "Is anything listening on port 3306?",
+        {"check_open_ports", "check_network_connections"},
+        "network: specific port check",
+    ),
+    (
+        "Resolve the A record for google.com",
+        {"dns_lookup"},
+        "network: DNS — technical phrasing",
+    ),
+    (
+        "Check connectivity to 10.0.0.1",
+        {"ping_host"},
+        "network: ping — alt phrasing",
     ),
 
-    # ── Users & files ────────────────────────────────────────────────────
+    # ── Users & files (6) ────────────────────────────────────────────────
     (
         "Who is logged into the server right now?",
         {"check_logged_in_users"},
-        "logged-in users",
+        "users: logged-in",
     ),
     (
         "Show me the cron jobs on this system",
         {"check_cron_jobs"},
-        "cron jobs",
+        "users: cron jobs",
     ),
     (
         "What files were modified in /etc in the last 24 hours?",
         {"find_recent_files"},
-        "recently modified files",
+        "files: recently modified",
+    ),
+    (
+        "Are there any active SSH sessions?",
+        {"check_logged_in_users", "check_network_connections"},
+        "users: SSH sessions",
+    ),
+    (
+        "Show me scheduled tasks",
+        {"check_cron_jobs"},
+        "users: cron — alt phrasing",
+    ),
+    (
+        "Any new files created in /tmp recently?",
+        {"find_recent_files"},
+        "files: recent in /tmp",
     ),
 
-    # ── Security ─────────────────────────────────────────────────────────
+    # ── Security (6) ─────────────────────────────────────────────────────
     (
         "Run a security audit on this system",
         {"system_audit"},
-        "security audit",
+        "security: audit",
     ),
     (
         "Are there any outdated packages?",
         {"check_outdated_packages"},
-        "outdated packages check",
+        "security: outdated packages",
     ),
     (
         "Update all system packages",
         {"update_packages", "check_outdated_packages"},
-        "package update — update_packages or check first is acceptable",
+        "security: package update",
+    ),
+    (
+        "Check this system for security issues",
+        {"system_audit"},
+        "security: audit — alt phrasing",
+    ),
+    (
+        "Are there packages with available updates?",
+        {"check_outdated_packages"},
+        "security: outdated — alt phrasing",
+    ),
+    (
+        "Patch the system",
+        {"update_packages", "check_outdated_packages"},
+        "security: patch — informal",
     ),
 
-    # ── General purpose (these SHOULD use run_command) ───────────────────
+    # ── General purpose (4) ──────────────────────────────────────────────
     (
         "Show me the routing table",
         {"run_command"},
-        "no dedicated tool — run_command is correct here",
+        "general: routing table",
     ),
     (
         "What's in /proc/cpuinfo?",
         {"run_command"},
-        "reading /proc — run_command is appropriate",
+        "general: /proc file",
+    ),
+    (
+        "Show me the ARP table",
+        {"run_command"},
+        "general: ARP — no dedicated tool",
+    ),
+    (
+        "Run uname -r to see the kernel version",
+        {"run_command"},
+        "general: uname — explicit command request",
     ),
 
-    # ── Ambiguous / tricky ───────────────────────────────────────────────
+    # ── Ambiguous / compound (5) ─────────────────────────────────────────
     (
         "Check if port 443 is open and if nginx is handling it",
         {"check_open_ports", "check_service_status", "check_network_connections"},
-        "compound question — either network or service tool is fine first",
+        "ambiguous: port + service compound",
     ),
     (
-        "The website is down, help me figure out why",
+        "The website is down, investigate why",
         {"check_service_status", "check_url_health", "check_open_ports",
          "check_network_connections", "query_journal_logs"},
-        "open-ended debugging — many reasonable first steps",
+        "ambiguous: website down — many valid starts",
+    ),
+    (
+        "We're having intermittent connection drops, check the network",
+        {"check_network_connections", "check_open_ports", "ping_host",
+         "check_cpu_and_load", "query_journal_logs"},
+        "ambiguous: connection drops",
+    ),
+    (
+        "The app is throwing 502 errors, investigate",
+        {"check_service_status", "check_url_health", "query_journal_logs",
+         "check_open_ports", "check_network_connections"},
+        "ambiguous: 502 errors — multiple investigation paths",
+    ),
+    (
+        "Something crashed overnight, can you investigate?",
+        {"list_failed_services", "query_journal_logs", "check_dmesg",
+         "system_audit"},
+        "ambiguous: overnight crash — log or service check",
     ),
 ]
 
