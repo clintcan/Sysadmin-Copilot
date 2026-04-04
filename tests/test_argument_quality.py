@@ -364,7 +364,7 @@ EVAL_CASES = [
         {
             "path": one_of("/var", "/var/"),
         },
-        "disk usage — /var partition",
+        "disk usage — /var partition (explicit phrasing)",
     ),
     (
         "What files were changed in /var/log in the last 2 days?",

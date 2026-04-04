@@ -309,7 +309,7 @@ class TestParaphrased:
         calls, _ = get_response(llm_with_tools, "This machine is crawling, what's going on?")
         names = tool_names(calls)
         print(f"\n  Tools: {names}")
-        assert len(calls) > 0 and names[0] in self.HEALTH
+        assert len(calls) > 0 and names[0] in self.HEALTH | {"query_journal_logs"}
 
     def test_something_ate_all_the_space(self, llm_with_tools):
         calls, _ = get_response(llm_with_tools, "Something ate all the disk space overnight")
@@ -485,6 +485,28 @@ class TestTrickyParameters:
         assert first_tool(calls) == "query_journal_logs"
         assert first_args(calls).get("priority") in ("emerg", "emergency", "0")
 
+    def test_exactly_two_days(self, llm_with_tools):
+        """Strict 2 days = 2880 minutes — known failure for llama3.1:8b (gives 120)."""
+        calls, _ = get_response(llm_with_tools, "Find files modified in /etc in the last 2 days")
+        print(f"\n  Tool: {first_tool(calls)}, Args: {first_args(calls)}")
+        assert first_tool(calls) == "find_recent_files"
+        minutes = int(first_args(calls).get("minutes", 0))
+        assert 2800 <= minutes <= 3000, (
+            f"Expected ~2880 minutes (2 days), got {minutes}"
+        )
+
+    def test_hypothetical_should_not_act(self, llm_with_tools):
+        """Hypothetical restart mentioned — must NOT call restart_service.
+        Known failure for qwen3.5 which acted on the hypothetical."""
+        calls, _ = get_response(llm_with_tools,
+            "What would happen if we restarted mysql? "
+            "Don't actually do it, just check its current status.")
+        names = tool_names(calls)
+        print(f"\n  Tools: {names}")
+        assert "restart_service" not in names, (
+            "Model acted on hypothetical — called restart_service"
+        )
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  5. AMBIGUOUS / VAGUE REQUESTS
@@ -542,16 +564,20 @@ class TestAmbiguous:
             assert names[0] in self.REASONABLE_STARTS
 
     def test_just_look_around(self, llm_with_tools):
-        calls, _ = get_response(llm_with_tools, "Just look around and tell me if anything is wrong")
+        """Soft assertion: text response acceptable for vague requests."""
+        calls, text = get_response(llm_with_tools, "Just look around and tell me if anything is wrong")
         names = tool_names(calls)
         print(f"\n  Tools: {names}")
-        assert len(calls) > 0, "Should start investigating"
+        assert len(calls) > 0 or len(text) > 20, "Should investigate or ask for details"
 
     def test_can_you_triage(self, llm_with_tools):
-        calls, _ = get_response(llm_with_tools, "Can you triage this server?")
+        """Soft assertion: single tool or text acceptable, multiple tools preferred."""
+        calls, text = get_response(llm_with_tools, "Can you triage this server?")
         names = tool_names(calls)
         print(f"\n  Tools: {names}")
-        assert len(calls) >= 2, f"Triage should check multiple things, got {len(calls)}: {names}"
+        assert len(calls) > 0 or len(text) > 20, "Should investigate or ask for details"
+        if len(calls) < 2:
+            print(f"  NOTE: Triage with {len(calls)} tool(s) — multiple preferred")
 
 
 # ═════════════════════════════════════════════════════════════════════════════

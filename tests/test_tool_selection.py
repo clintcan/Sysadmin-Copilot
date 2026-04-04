@@ -220,6 +220,11 @@ EVAL_CASES = [
         {"check_directory_size"},
         "health: directory size — investigative",
     ),
+    (
+        "Check disk usage on /var",
+        {"check_disk_usage", "check_directory_size"},
+        "health: /var disk — ambiguous, both tools valid",
+    ),
 
     # ── Services (8) ─────────────────────────────────────────────────────
     (
@@ -384,6 +389,11 @@ EVAL_CASES = [
         "Show me the ARP table",
         {"run_command"},
         "general: ARP — no dedicated tool",
+    ),
+    (
+        "What kernel version is running?",
+        {"run_command", "check_cpu_and_load"},
+        "general: kernel version — natural phrasing",
     ),
     (
         "Run uname -r to see the kernel version",
