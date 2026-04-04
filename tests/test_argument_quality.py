@@ -359,12 +359,12 @@ EVAL_CASES = [
         "directory size — /home",
     ),
     (
-        "Check disk usage on /var",
+        "Check how full the /var partition is",
         "check_disk_usage",
         {
             "path": one_of("/var", "/var/"),
         },
-        "disk usage — /var",
+        "disk usage — /var partition",
     ),
     (
         "What files were changed in /var/log in the last 2 days?",

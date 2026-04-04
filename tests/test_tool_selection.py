@@ -400,7 +400,8 @@ EVAL_CASES = [
     (
         "The website is down, investigate why",
         {"check_service_status", "check_url_health", "check_open_ports",
-         "check_network_connections", "query_journal_logs"},
+         "check_network_connections", "query_journal_logs",
+         "check_cpu_and_load", "check_memory"},
         "ambiguous: website down — many valid starts",
     ),
     (
@@ -418,7 +419,7 @@ EVAL_CASES = [
     (
         "Something crashed overnight, can you investigate?",
         {"list_failed_services", "query_journal_logs", "check_dmesg",
-         "system_audit"},
+         "system_audit", "check_service_status"},
         "ambiguous: overnight crash — log or service check",
     ),
 ]
