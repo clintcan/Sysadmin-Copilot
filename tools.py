@@ -903,6 +903,17 @@ def _load_extra_tools() -> tuple[list, set]:
         names = ", ".join(t.name for t in tools)
         print(f"\033[90mLoaded {len(tools)} extra tool(s): {names}\033[0m")
 
+        # Warn about duplicate tool names — LangChain can't distinguish them
+        seen = {}
+        for t in tools:
+            if t.name in seen:
+                print(
+                    f"\033[33m[WARNING] Duplicate tool name '{t.name}' — "
+                    f"already loaded from a different plugin. "
+                    f"LangChain may not call the correct one.\033[0m"
+                )
+            seen[t.name] = True
+
     return tools, write_tools
 
 
