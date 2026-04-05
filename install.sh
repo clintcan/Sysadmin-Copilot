@@ -70,43 +70,118 @@ SYSTEMCTL_PATH="$(command -v systemctl)" || die "systemctl not found — is this
 
 # ─── Step 1: LLM Provider ─────────────────────────────────────────────────────
 
-header "Step 1: Choose your LLM provider"
-echo ""
-echo "  1) Ollama  — local/self-hosted (no API key needed)"
-echo "  2) OpenAI  — GPT-4o-mini (requires OPENAI_API_KEY)"
-echo "  3) Anthropic — Claude (requires ANTHROPIC_API_KEY)"
-echo ""
-read -rp "$(echo -e "${YELLOW}Provider [1/2/3, default: 1]: ${RESET}")" provider_choice
-provider_choice="${provider_choice:-1}"
+header "Step 1: LLM provider configuration"
 
-case "$provider_choice" in
-    1)
-        LLM_PROVIDER="ollama"
-        PROVIDER_PKG="langchain-ollama>=0.2"
-        API_KEY_VAR=""
-        API_KEY_VAL=""
-        ;;
-    2)
-        LLM_PROVIDER="openai"
-        PROVIDER_PKG="langchain-openai>=0.2"
-        API_KEY_VAR="OPENAI_API_KEY"
-        read -rp "$(echo -e "${YELLOW}  Enter your OpenAI API key: ${RESET}")" API_KEY_VAL
-        [[ -n "$API_KEY_VAL" ]] || die "API key cannot be empty."
-        ;;
-    3)
-        LLM_PROVIDER="anthropic"
-        PROVIDER_PKG="langchain-anthropic>=0.3"
-        API_KEY_VAR="ANTHROPIC_API_KEY"
-        read -rsp "$(echo -e "${YELLOW}  Enter your Anthropic API key: ${RESET}")" API_KEY_VAL
-        echo ""
-        [[ -n "$API_KEY_VAL" ]] || die "API key cannot be empty."
-        ;;
-    *)
-        die "Invalid choice: $provider_choice"
-        ;;
-esac
+ENV_FILE="${INSTALL_DIR}/.env"
+SKIP_ENV=false
 
-success "Provider: ${LLM_PROVIDER}"
+# Check for existing .env and parse current values as defaults
+EXISTING_PROVIDER=""
+EXISTING_KEY_VAR=""
+EXISTING_KEY_VAL=""
+
+if [[ -f "$ENV_FILE" ]]; then
+    echo ""
+    warn "Existing .env found at ${ENV_FILE}"
+
+    # Parse existing values
+    EXISTING_PROVIDER="$(grep -oP '^LLM_PROVIDER=\K.*' "$ENV_FILE" 2>/dev/null || true)"
+    if [[ -n "$EXISTING_PROVIDER" ]]; then
+        # Detect which API key is set (mask the value for display)
+        for key_name in OPENAI_API_KEY ANTHROPIC_API_KEY; do
+            val="$(grep -oP "^${key_name}=\\K.*" "$ENV_FILE" 2>/dev/null || true)"
+            if [[ -n "$val" ]]; then
+                EXISTING_KEY_VAR="$key_name"
+                EXISTING_KEY_VAL="$val"
+                masked="${val:0:8}...${val: -4}"
+                info "Current config: LLM_PROVIDER=${EXISTING_PROVIDER}, ${key_name}=${masked}"
+                break
+            fi
+        done
+        if [[ -z "$EXISTING_KEY_VAR" ]]; then
+            info "Current config: LLM_PROVIDER=${EXISTING_PROVIDER} (no API key)"
+        fi
+    fi
+
+    echo ""
+    read -rp "$(echo -e "${YELLOW}Keep existing configuration? [Y/n]: ${RESET}")" keep_env
+    keep_env="${keep_env:-y}"
+
+    if [[ "${keep_env,,}" == "y" || "${keep_env,,}" == "yes" ]]; then
+        SKIP_ENV=true
+        LLM_PROVIDER="$EXISTING_PROVIDER"
+        API_KEY_VAR="$EXISTING_KEY_VAR"
+        API_KEY_VAL="$EXISTING_KEY_VAL"
+        # Determine the provider package to install
+        case "$LLM_PROVIDER" in
+            ollama)    PROVIDER_PKG="langchain-ollama>=0.2" ;;
+            openai)    PROVIDER_PKG="langchain-openai>=0.2" ;;
+            anthropic) PROVIDER_PKG="langchain-anthropic>=0.3" ;;
+            *)         die "Unknown provider in existing .env: $LLM_PROVIDER" ;;
+        esac
+        success "Keeping existing configuration (provider: ${LLM_PROVIDER})."
+    fi
+fi
+
+if [[ "$SKIP_ENV" == false ]]; then
+    # Map existing provider to default choice number
+    default_choice="1"
+    case "$EXISTING_PROVIDER" in
+        ollama)    default_choice="1" ;;
+        openai)    default_choice="2" ;;
+        anthropic) default_choice="3" ;;
+    esac
+
+    echo ""
+    echo "  1) Ollama  — local/self-hosted (no API key needed)"
+    echo "  2) OpenAI  — GPT-4o-mini (requires OPENAI_API_KEY)"
+    echo "  3) Anthropic — Claude (requires ANTHROPIC_API_KEY)"
+    echo ""
+    read -rp "$(echo -e "${YELLOW}Provider [1/2/3, default: ${default_choice}]: ${RESET}")" provider_choice
+    provider_choice="${provider_choice:-$default_choice}"
+
+    case "$provider_choice" in
+        1)
+            LLM_PROVIDER="ollama"
+            PROVIDER_PKG="langchain-ollama>=0.2"
+            API_KEY_VAR=""
+            API_KEY_VAL=""
+            ;;
+        2)
+            LLM_PROVIDER="openai"
+            PROVIDER_PKG="langchain-openai>=0.2"
+            API_KEY_VAR="OPENAI_API_KEY"
+            # Show masked existing key as default if switching from same provider
+            if [[ "$EXISTING_KEY_VAR" == "OPENAI_API_KEY" && -n "$EXISTING_KEY_VAL" ]]; then
+                masked="${EXISTING_KEY_VAL:0:8}...${EXISTING_KEY_VAL: -4}"
+                read -rp "$(echo -e "${YELLOW}  Enter your OpenAI API key [${masked}]: ${RESET}")" API_KEY_VAL
+                API_KEY_VAL="${API_KEY_VAL:-$EXISTING_KEY_VAL}"
+            else
+                read -rp "$(echo -e "${YELLOW}  Enter your OpenAI API key: ${RESET}")" API_KEY_VAL
+            fi
+            [[ -n "$API_KEY_VAL" ]] || die "API key cannot be empty."
+            ;;
+        3)
+            LLM_PROVIDER="anthropic"
+            PROVIDER_PKG="langchain-anthropic>=0.3"
+            API_KEY_VAR="ANTHROPIC_API_KEY"
+            if [[ "$EXISTING_KEY_VAR" == "ANTHROPIC_API_KEY" && -n "$EXISTING_KEY_VAL" ]]; then
+                masked="${EXISTING_KEY_VAL:0:8}...${EXISTING_KEY_VAL: -4}"
+                read -rp "$(echo -e "${YELLOW}  Enter your Anthropic API key [${masked}]: ${RESET}")" API_KEY_VAL
+                API_KEY_VAL="${API_KEY_VAL:-$EXISTING_KEY_VAL}"
+            else
+                read -rsp "$(echo -e "${YELLOW}  Enter your Anthropic API key: ${RESET}")" API_KEY_VAL
+                echo ""
+            fi
+            [[ -n "$API_KEY_VAL" ]] || die "API key cannot be empty."
+            ;;
+        *)
+            die "Invalid choice: $provider_choice"
+            ;;
+    esac
+
+    success "Provider: ${LLM_PROVIDER}"
+fi
 
 # ─── Step 2: Create service account ──────────────────────────────────────────
 
@@ -161,18 +236,23 @@ success "Dependencies installed."
 
 header "Step 4: Environment configuration"
 
-ENV_FILE="${INSTALL_DIR}/.env"
+if [[ "$SKIP_ENV" == true ]]; then
+    # Ensure permissions are correct on existing file
+    chown "${SERVICE_USER}:${SERVICE_USER}" "$ENV_FILE"
+    chmod 600 "$ENV_FILE"
+    success "Kept existing ${ENV_FILE} (permissions verified)."
+else
+    {
+        echo "LLM_PROVIDER=${LLM_PROVIDER}"
+        if [[ -n "$API_KEY_VAR" && -n "$API_KEY_VAL" ]]; then
+            echo "${API_KEY_VAR}=${API_KEY_VAL}"
+        fi
+    } > "$ENV_FILE"
 
-{
-    echo "LLM_PROVIDER=${LLM_PROVIDER}"
-    if [[ -n "$API_KEY_VAR" && -n "$API_KEY_VAL" ]]; then
-        echo "${API_KEY_VAR}=${API_KEY_VAL}"
-    fi
-} > "$ENV_FILE"
-
-chown "${SERVICE_USER}:${SERVICE_USER}" "$ENV_FILE"
-chmod 600 "$ENV_FILE"
-success "Wrote ${ENV_FILE} (mode 600)."
+    chown "${SERVICE_USER}:${SERVICE_USER}" "$ENV_FILE"
+    chmod 600 "$ENV_FILE"
+    success "Wrote ${ENV_FILE} (mode 600)."
+fi
 
 # ─── Step 5: Sudoers ─────────────────────────────────────────────────────────
 
