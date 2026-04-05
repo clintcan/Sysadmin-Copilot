@@ -80,6 +80,17 @@ EXISTING_PROVIDER=""
 EXISTING_KEY_VAR=""
 EXISTING_KEY_VAL=""
 
+# Mask an API key for safe display: show first 4 and last 4 chars
+mask_key() {
+    local key="$1"
+    local len=${#key}
+    if [[ $len -le 12 ]]; then
+        echo "${key:0:2}***${key: -2}"
+    else
+        echo "${key:0:8}...${key: -4}"
+    fi
+}
+
 if [[ -f "$ENV_FILE" ]]; then
     echo ""
     warn "Existing .env found at ${ENV_FILE}"
@@ -93,8 +104,7 @@ if [[ -f "$ENV_FILE" ]]; then
             if [[ -n "$val" ]]; then
                 EXISTING_KEY_VAR="$key_name"
                 EXISTING_KEY_VAL="$val"
-                masked="${val:0:8}...${val: -4}"
-                info "Current config: LLM_PROVIDER=${EXISTING_PROVIDER}, ${key_name}=${masked}"
+                info "Current config: LLM_PROVIDER=${EXISTING_PROVIDER}, ${key_name}=$(mask_key "$val")"
                 break
             fi
         done
@@ -153,7 +163,7 @@ if [[ "$SKIP_ENV" == false ]]; then
             API_KEY_VAR="OPENAI_API_KEY"
             # Show masked existing key as default if switching from same provider
             if [[ "$EXISTING_KEY_VAR" == "OPENAI_API_KEY" && -n "$EXISTING_KEY_VAL" ]]; then
-                masked="${EXISTING_KEY_VAL:0:8}...${EXISTING_KEY_VAL: -4}"
+                masked="$(mask_key "$EXISTING_KEY_VAL")"
                 read -rp "$(echo -e "${YELLOW}  Enter your OpenAI API key [${masked}]: ${RESET}")" API_KEY_VAL
                 API_KEY_VAL="${API_KEY_VAL:-$EXISTING_KEY_VAL}"
             else
@@ -166,7 +176,7 @@ if [[ "$SKIP_ENV" == false ]]; then
             PROVIDER_PKG="langchain-anthropic>=0.3"
             API_KEY_VAR="ANTHROPIC_API_KEY"
             if [[ "$EXISTING_KEY_VAR" == "ANTHROPIC_API_KEY" && -n "$EXISTING_KEY_VAL" ]]; then
-                masked="${EXISTING_KEY_VAL:0:8}...${EXISTING_KEY_VAL: -4}"
+                masked="$(mask_key "$EXISTING_KEY_VAL")"
                 read -rp "$(echo -e "${YELLOW}  Enter your Anthropic API key [${masked}]: ${RESET}")" API_KEY_VAL
                 API_KEY_VAL="${API_KEY_VAL:-$EXISTING_KEY_VAL}"
             else
@@ -242,10 +252,19 @@ if [[ "$SKIP_ENV" == true ]]; then
     chmod 600 "$ENV_FILE"
     success "Kept existing ${ENV_FILE} (permissions verified)."
 else
+    # Preserve extra variables from existing .env (VT_API_KEY, EXTRA_SERVICES, etc.)
+    EXTRA_LINES=""
+    if [[ -f "$ENV_FILE" ]]; then
+        EXTRA_LINES="$(grep -v '^LLM_PROVIDER=\|^OPENAI_API_KEY=\|^ANTHROPIC_API_KEY=\|^[[:space:]]*$\|^#' "$ENV_FILE" 2>/dev/null || true)"
+    fi
+
     {
         echo "LLM_PROVIDER=${LLM_PROVIDER}"
         if [[ -n "$API_KEY_VAR" && -n "$API_KEY_VAL" ]]; then
             echo "${API_KEY_VAR}=${API_KEY_VAL}"
+        fi
+        if [[ -n "$EXTRA_LINES" ]]; then
+            echo "$EXTRA_LINES"
         fi
     } > "$ENV_FILE"
 
