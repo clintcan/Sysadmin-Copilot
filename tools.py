@@ -851,10 +851,16 @@ def run_command(command: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _load_extra_tools() -> tuple[list, set]:
-    """Auto-discover tools from tools_extra/*.py files.
+    """Auto-discover tools from tools_extra/ (including subfolders).
+
+    Supports both flat and categorized layouts:
+        tools_extra/threat_intel.py          (flat)
+        tools_extra/network/scanner.py       (categorized)
+        tools_extra/network/dns_tools.py     (categorized)
 
     Returns (tools_list, write_tools_set).
-    Files starting with '_' are skipped. Errors are warned but don't crash startup.
+    Files and directories starting with '_' are skipped.
+    Errors are warned but don't crash startup.
     """
     extra_dir = Path(__file__).parent / "tools_extra"
     tools = []
@@ -863,17 +869,23 @@ def _load_extra_tools() -> tuple[list, set]:
     if not extra_dir.is_dir():
         return tools, write_tools
 
-    for py_file in sorted(extra_dir.glob("*.py")):
-        if py_file.name.startswith("_"):
+    for py_file in sorted(extra_dir.glob("**/*.py")):
+        if any(part.startswith("_") for part in py_file.relative_to(extra_dir).parts):
             continue
 
-        module_name = f"tools_extra.{py_file.stem}"
+        # Build a unique module name from the relative path:
+        #   tools_extra/threat_intel.py       -> tools_extra.threat_intel
+        #   tools_extra/network/scanner.py    -> tools_extra.network.scanner
+        rel = py_file.relative_to(extra_dir.parent)
+        module_name = ".".join(rel.with_suffix("").parts)
+
         try:
             spec = importlib.util.spec_from_file_location(module_name, py_file)
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
         except Exception as e:
-            print(f"\033[33m[WARNING] Failed to load plugin {py_file.name}: {e}\033[0m")
+            rel_path = py_file.relative_to(extra_dir)
+            print(f"\033[33m[WARNING] Failed to load plugin {rel_path}: {e}\033[0m")
             continue
 
         # Collect @tool functions (BaseTool instances)

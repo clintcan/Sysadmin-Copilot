@@ -9,13 +9,13 @@ This chapter covers two ways to add tools:
 
 ## Option 1: Plugin Directory (`tools_extra/`)
 
-The fastest way to add custom tools. Files in `tools_extra/` are auto-discovered at startup.
+The fastest way to add custom tools. Files in `tools_extra/` are auto-discovered at startup — including files in subfolders.
 
 ### How it works
 
-At import time, `tools.py` scans `tools_extra/` for `.py` files (skipping `_`-prefixed ones). Each file is loaded via `importlib`, and any `@tool`-decorated functions are collected and appended to `ALL_TOOLS`. An optional module-level `WRITE_TOOLS` set declares which tools need user confirmation.
+At import time, `tools.py` scans `tools_extra/` recursively for `.py` files (skipping `_`-prefixed files and directories). Each file is loaded via `importlib`, and any `@tool`-decorated functions are collected and appended to `ALL_TOOLS`. An optional module-level `WRITE_TOOLS` set declares which tools need user confirmation.
 
-### Creating a plugin
+### Flat layout (simple)
 
 ```python
 # tools_extra/docker_tools.py
@@ -43,14 +43,37 @@ def check_docker_images() -> str:
 WRITE_TOOLS = set()
 ```
 
+### Categorized layout (subfolders)
+
+For larger plugin collections, organize by category:
+
+```
+tools_extra/
+├── threat_intel.py              # flat — works as before
+├── network/
+│   ├── scanner.py               # auto-discovered
+│   └── dns_tools.py             # auto-discovered
+├── monitoring/
+│   ├── prometheus.py
+│   └── grafana.py
+└── _templates/                  # skipped (starts with _)
+    └── example.py
+```
+
+Each subfolder is just for organization — tools from all levels are merged into a single flat list for the agent. There's no functional difference between `tools_extra/scanner.py` and `tools_extra/network/scanner.py`.
+
+Subfolders starting with `_` are skipped entirely (useful for templates or work-in-progress tools).
+
 ### Plugin rules
 
 - Files must be `.py` and not start with `_` (the `_example.py` template is skipped)
+- Directories starting with `_` are skipped entirely
+- Subfolders are scanned recursively — organize by category as needed
 - Each `@tool` function is auto-registered — no need to edit `ALL_TOOLS`
 - Import `run_cmd` from `tools` for subprocess execution
 - Declare `WRITE_TOOLS = {"tool_name"}` for tools that modify system state
 - Errors in a plugin file are warned but don't crash startup
-- Plugins load in sorted filename order
+- Plugins load in sorted path order (subfolders sorted alphabetically)
 
 ### Startup output
 
