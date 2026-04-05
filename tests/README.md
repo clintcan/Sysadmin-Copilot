@@ -139,16 +139,14 @@ LLM_PROVIDER=anthropic python -m pytest tests/ -v -s
 LLM_PROVIDER=ollama OLLAMA_MODEL=llama3.1:8b python -m pytest tests/ -v -s
 ```
 
-| Eval | Tests | claude-sonnet-4 | gpt-4o-mini | llama3.1:8b | qwen3.5 |
-|------|-------|-----------------|-------------|-------------|---------|
+| Eval | Tests | claude-haiku-4.5 | gpt-4o-mini | llama3.1:8b | qwen3.5 |
+|------|-------|------------------|-------------|-------------|---------|
 | Safety (no LLM) | 128 | 128/128 | 128/128 | 128/128 | 128/128 |
-| Tool selection | 59 | — | 58/59 (98%) | — | — |
-| Anti-hallucination | 35 | — | 35/35 | — | — |
-| Argument quality | 33 | — | 33/33 | — | — |
-| Challenging | 65 | — | 65/65 | — | — |
-| **Total** | **320** | — | **319/320 (99.7%)** | — | — |
-
-*Baselines for claude-sonnet-4, llama3.1:8b, and qwen3.5 pending re-run against de-biased suite.*
+| Tool selection | 59 | 58/59 (98%) | 58/59 (98%) | 56/59 (95%) | 57/59 (97%) |
+| Anti-hallucination | 35 | 35/35 | 35/35 | 35/35 | 35/35 |
+| Argument quality | 33 | 33/33 | 33/33 | 32/33 (97%) | 33/33 |
+| Challenging | 65 | 65/65 | 65/65 | 59/65 (91%) | 62/65 (95%) |
+| **Total** | **320** | **319/320 (99.7%)** | **319/320 (99.7%)** | **310/320 (97%)** | **315/320 (98%)** |
 
 ### Notable findings
 
@@ -163,23 +161,24 @@ LLM_PROVIDER=ollama OLLAMA_MODEL=llama3.1:8b python -m pytest tests/ -v -s
 - None called `restart_service` or `stop_service` when told not to, across 14 different phrasings: "don't restart", "skip the restart", "without restarting", "just look don't touch", "leave it alone", "read-only investigation", etc. This is the most safety-relevant eval.
 
 **Anti-hallucination — universal 100%:**
-- All three models pass all 35 factual questions. None fabricated output. The system prompt directive ("only report information from tool output") works across all providers and model sizes.
+- All four models pass all 35 factual questions. None fabricated output. The system prompt directive ("only report information from tool output") works across all providers and model sizes.
 
-**Paraphrased/slang — near-universal pass:**
-- All models correctly map informal language to tools: "box choking" → CPU/memory, "hogging pipes" → network, "bleeding disk" → disk usage. llama3.1:8b missed on "machine crawling" (picked wrong first tool).
-
-**Tool selection — gpt-4o-mini pulls ahead:**
-- Both local models consistently use `read_log_file` for `/proc/cpuinfo` instead of `run_command`. This would fail at runtime due to the path allowlist. The `run_command` docstring's "LAST RESORT" wording may be too discouraging for smaller models.
-- qwen3.5 also missed "bring nginx back up" (informal restart phrasing) and "502 errors, investigate".
+**Tool selection — cloud models tied at 98%:**
+- **gpt-4o-mini** answered "What kernel version is running?" in text instead of calling `run_command`. It knows the answer from the system prompt but should still use a tool.
+- **claude-haiku-4.5** started with `check_cpu_and_load` for "overnight crash" — a health check before investigating what crashed.
+- Both local models consistently use `read_log_file` for `/proc/cpuinfo` instead of `run_command`. The `run_command` docstring's "LAST RESORT" wording may be too discouraging for smaller models.
 
 **Argument quality:**
-- **gpt-4o-mini** and **qwen3.5** both score 100%. qwen3.5 correctly converts "2 days" to `minutes=2880` and populates optional parameters like `sort_by="cpu"`.
+- **gpt-4o-mini**, **claude-haiku-4.5**, and **qwen3.5** all score 100%.
 - **llama3.1:8b** still has the day-to-minute math bug: "2 days" → `minutes=120` (2 hours instead of 2880).
 
-**Challenging evals — where the gap shows (94% vs 100%):**
-- **Tricky parameters**: llama3.1:8b failed "past week" time conversion. qwen3.5 failed "last Tuesday" (wrong param name). gpt-4o-mini passed all 12.
-- **Ambiguous requests**: both local models struggle with very vague prompts ("something is off", "triage this server"), sometimes picking suboptimal first tools or not calling enough tools. gpt-4o-mini handles these by launching multiple tools in parallel.
-- **Distraction**: qwen3.5 acted on a hypothetical restart ("if we were to restart the database later...") — the only model to do so.
+**Challenging evals — where the gap shows:**
+- **Cloud models** (gpt-4o-mini, claude-haiku-4.5) both score 65/65 (100%).
+- **llama3.1:8b** scores 59/65 (91%): fails on time conversions ("past week", "exactly 2 days"), ambiguous requests ("something is off"), and `run_command` avoidance (ARP table).
+- **qwen3.5** scores 62/65 (95%): acts on hypothetical restarts, uses wrong param names for "last Tuesday", picks wrong first tool for "502 errors".
+
+**Distraction resistance:**
+- qwen3.5 acted on a hypothetical restart ("if we were to restart the database later...") — the only model to do so across both the original and the new explicit hypothetical test.
 
 **Boundary behavior — three distinct strategies, all valid:**
 
