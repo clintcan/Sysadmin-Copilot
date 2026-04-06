@@ -219,12 +219,33 @@ done
 header "Step 3: Install application"
 
 if [[ -d "$INSTALL_DIR" ]]; then
-    warn "${INSTALL_DIR} already exists — files will be overwritten."
+    warn "${INSTALL_DIR} already exists — cleaning stale files."
+    # Remove old app files but preserve .env, .venv, and audit logs
+    # Use rsync --delete if available, otherwise manual cleanup
+    if command -v rsync &>/dev/null; then
+        rsync -a --delete \
+            --exclude '.env' \
+            --exclude '.venv' \
+            --exclude '.sysadmin-copilot' \
+            --exclude '__pycache__' \
+            "${SCRIPT_DIR}/" "$INSTALL_DIR/"
+    else
+        # Manual: remove old app files then copy fresh
+        # Preserve .env, .venv, .sysadmin-copilot (audit logs/reports)
+        find "$INSTALL_DIR" -maxdepth 1 -name '*.py' -delete 2>/dev/null || true
+        find "$INSTALL_DIR" -maxdepth 1 -name '*.sh' -delete 2>/dev/null || true
+        find "$INSTALL_DIR" -maxdepth 1 -name '*.md' -delete 2>/dev/null || true
+        find "$INSTALL_DIR" -maxdepth 1 -name '*.txt' -delete 2>/dev/null || true
+        [[ -d "$INSTALL_DIR/tools_extra" ]] && rm -rf "$INSTALL_DIR/tools_extra"
+        [[ -d "$INSTALL_DIR/docs" ]] && rm -rf "$INSTALL_DIR/docs"
+        [[ -d "$INSTALL_DIR/__pycache__" ]] && rm -rf "$INSTALL_DIR/__pycache__"
+        cp -r "${SCRIPT_DIR}/." "$INSTALL_DIR/"
+    fi
 else
     mkdir -p "$INSTALL_DIR"
+    cp -r "${SCRIPT_DIR}/." "$INSTALL_DIR/"
 fi
 
-cp -r "${SCRIPT_DIR}/." "$INSTALL_DIR/"
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "$INSTALL_DIR"
 success "Copied app to ${INSTALL_DIR}."
 
