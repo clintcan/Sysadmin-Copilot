@@ -237,7 +237,7 @@ def main():
         try:
             # get current directory
             current_directory = os.getcwd()
-            user_input = input("\033[32m"+current_directory+" ❯ \033[0m").strip()
+            user_input = input("\001\033[0m\002\001\033[32m\002"+current_directory+" ❯ \001\033[0m\002").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n\033[90mGoodbye!\033[0m")
             break
@@ -344,9 +344,11 @@ def main():
             audit.log_interaction(user_input, last_content)
 
         except KeyboardInterrupt:
+            print("\033[0m")  # always reset colors before handling error
             history.pop()  # discard the unanswered user message
-            print("\n\033[33mInterrupted. Ready for next question.\033[0m\n")
+            print("\033[33mInterrupted. Ready for next question.\033[0m\n")
         except Exception as e:
+            print("\033[0m", end="")  # always reset colors before handling error
             history.pop()  # discard the unanswered user message
             err_str = str(e).lower()
             if any(kw in err_str for kw in (
