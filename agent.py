@@ -318,7 +318,9 @@ def main():
                             and not getattr(chunk, "tool_call_chunks", None)
                         ):
                             if not in_response:
-                                print("\033[97m", end="", flush=True)
+                                # Use default terminal color (not bright white,
+                                # which is invisible on light backgrounds)
+                                print("\033[0m", end="", flush=True)
                                 in_response = True
                             print(chunk.content, end="", flush=True)
 
