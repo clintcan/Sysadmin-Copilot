@@ -325,9 +325,11 @@ def main():
                 elif mode == "values":
                     final_state = data
 
+            # Always reset terminal colors after streaming, even if
+            # in_response is False — multi-tool-call sequences can leak
+            # color codes from intermediate model chunks.
+            print("\033[0m")
             if in_response:
-                print("\033[0m\n")
-            else:
                 print()
 
             # Persist the full thread (user + tool calls + assistant reply)
