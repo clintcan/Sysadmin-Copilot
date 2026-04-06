@@ -325,12 +325,11 @@ def main():
                 elif mode == "values":
                     final_state = data
 
-            # Always reset terminal colors after streaming, even if
-            # in_response is False — multi-tool-call sequences can leak
-            # color codes from intermediate model chunks.
-            print("\033[0m")
-            if in_response:
-                print()
+            # Always reset terminal colors after streaming.
+            # Use sys.stdout.write + flush to guarantee the reset
+            # reaches the terminal before the next input() prompt.
+            sys.stdout.write("\033[0m\n")
+            sys.stdout.flush()
 
             # Persist the full thread (user + tool calls + assistant reply)
             history = final_state["messages"]
@@ -346,11 +345,13 @@ def main():
             audit.log_interaction(user_input, last_content)
 
         except KeyboardInterrupt:
-            print("\033[0m")  # always reset colors before handling error
+            sys.stdout.write("\033[0m\n")
+            sys.stdout.flush()
             history.pop()  # discard the unanswered user message
             print("\033[33mInterrupted. Ready for next question.\033[0m\n")
         except Exception as e:
-            print("\033[0m", end="")  # always reset colors before handling error
+            sys.stdout.write("\033[0m\n")
+            sys.stdout.flush()
             history.pop()  # discard the unanswered user message
             err_str = str(e).lower()
             if any(kw in err_str for kw in (
