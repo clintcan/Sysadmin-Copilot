@@ -237,7 +237,10 @@ def main():
         try:
             # get current directory
             current_directory = os.getcwd()
-            user_input = input("\001\033[0m\002\001\033[32m\002"+current_directory+" ❯ \001\033[0m\002").strip()
+            # Reset terminal to sane state before prompting.
+            # tput sgr0 is more reliable than ANSI codes across terminals.
+            os.system("tput sgr0 2>/dev/null")
+            user_input = input(current_directory+" ❯ ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n\033[90mGoodbye!\033[0m")
             break
