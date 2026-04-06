@@ -21,6 +21,7 @@ import os
 import pwd
 import subprocess
 import sys
+import termios
 import readline  # noqa: F401 — enables arrow keys in input()
 from datetime import datetime
 
@@ -197,6 +198,14 @@ Guidelines:
 # ─── Main Loop ────────────────────────────────────────────────────────────────
 
 def main():
+    # Save terminal state at startup so we can restore it before each prompt.
+    # Streaming and subprocess calls can corrupt terminal settings, causing
+    # invisible typed text and broken keyboard mappings.
+    try:
+        _saved_term_attrs = termios.tcgetattr(sys.stdin)
+    except (termios.error, ValueError):
+        _saved_term_attrs = None  # not a real terminal (piped input, etc.)
+
     print(BANNER)
 
     # We will get the current user and change directory there if it is sysadmin-copilot
@@ -237,9 +246,16 @@ def main():
         try:
             # get current directory
             current_directory = os.getcwd()
-            # Reset terminal to sane state before prompting.
-            # tput sgr0 is more reliable than ANSI codes across terminals.
-            os.system("tput sgr0 2>/dev/null")
+            # Restore terminal to saved state before prompting.
+            # Streaming and subprocesses can corrupt terminal settings,
+            # causing invisible text and broken keyboard mappings.
+            if _saved_term_attrs:
+                try:
+                    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, _saved_term_attrs)
+                except (termios.error, ValueError):
+                    pass
+            sys.stdout.write("\033[0m")
+            sys.stdout.flush()
             user_input = input(current_directory+" ❯ ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n\033[90mGoodbye!\033[0m")
