@@ -265,7 +265,11 @@ def stop_service(service: str) -> str:
 
 @tool
 def check_open_ports() -> str:
-    """Show open/listening ports and the processes using them."""
+    """Show open/listening ports on THIS machine (local only).
+
+    Lists ports that local services are listening on, with process names.
+    This does NOT scan remote hosts — use nmap_scan for that.
+    """
     return run_cmd(["ss", "-tulnp"])
 
 
