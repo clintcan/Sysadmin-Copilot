@@ -52,8 +52,64 @@ _extra_services = os.environ.get("EXTRA_SERVICES", "")
 if _extra_services:
     ALLOWED_SERVICES |= {s.strip() for s in _extra_services.split(",") if s.strip()}
 
+# Commands allowed in run_command (allowlist approach).
+# Only the first word of the command (the binary name) is checked.
+# This is the primary safety boundary for run_command — anything not listed
+# here is denied before it reaches the shell.
+# Extend at runtime via EXTRA_COMMANDS env var:
+#   EXTRA_COMMANDS=nmap,tcpdump python agent.py
+ALLOWED_COMMANDS = {
+    # System info
+    "uname", "hostname", "uptime", "date", "whoami", "id", "w", "who",
+    "arch", "nproc", "lscpu", "lsmem", "lsblk", "lspci", "lsusb", "lsmod",
+    "dmidecode", "hostnamectl", "timedatectl", "localectl",
+    # Files and directories (read-only)
+    "ls", "cat", "head", "tail", "wc", "file", "stat", "find",
+    "tree", "diff", "sort", "uniq", "cut", "tr", "awk", "sed",
+    "tee", "less", "more", "realpath", "basename", "dirname",
+    # Search
+    "grep", "egrep", "fgrep", "rg", "locate", "which", "whereis", "type",
+    # Disk and filesystem
+    "df", "du", "mount", "findmnt", "blkid", "tune2fs", "lsof",
+    # Process and performance
+    "ps", "top", "htop", "free", "vmstat", "iostat", "mpstat",
+    "sar", "pidof", "pgrep", "strace", "ltrace",
+    # Network (read-only)
+    "ip", "ss", "netstat", "ping", "ping6", "traceroute", "tracepath",
+    "dig", "nslookup", "host", "curl", "wget",
+    "arp", "route", "mtr", "ethtool", "ifconfig", "nmcli",
+    "iptables", "ip6tables", "nft", "firewall-cmd",
+    "tc", "brctl", "bridge", "resolvectl",
+    # Logs and journal
+    "journalctl", "dmesg", "last", "lastb", "lastlog", "ausearch",
+    # Packages (query only — actual updates go through update_packages tool)
+    "apt", "apt-cache", "dpkg", "rpm", "dnf", "yum", "snap", "flatpak",
+    "pip", "pip3",
+    # Systemd (read-only — write actions go through dedicated tools)
+    "systemctl",
+    # Security and audit
+    "getent", "groups", "passwd", "chage", "faillock",
+    "openssl", "ssh-keygen", "gpg",
+    "aa-status", "getenforce", "sestatus", "ausearch", "aureport",
+    # Hardware and kernel
+    "modinfo", "sysctl", "zcat", "xz",
+    # Containers
+    "docker", "podman", "crictl", "kubectl",
+    # Misc sysadmin
+    "env", "printenv", "set", "locale",
+    "crontab", "at", "systemd-analyze",
+    "iconv", "od", "xxd", "hexdump", "strings",
+    "md5sum", "sha256sum", "sha1sum",
+}
+
+# Extend the command allowlist at runtime without editing this file:
+#   EXTRA_COMMANDS=nmap,tcpdump python agent.py
+_extra_commands = os.environ.get("EXTRA_COMMANDS", "")
+if _extra_commands:
+    ALLOWED_COMMANDS |= {c.strip() for c in _extra_commands.split(",") if c.strip()}
+
 # Arguments that are NEVER allowed in any tool
-# NOTE: This is defense-in-depth, not a security boundary.
+# NOTE: This is defense-in-depth backing the allowlist above.
 # The real boundary is OS-level permissions (service account + sudoers).
 # See docs/05-safety-layer.md "Threat Model and Limitations" for details.
 BLOCKED_PATTERNS = [
@@ -90,6 +146,58 @@ BLOCKED_PATTERNS = [
     "| bash", "| sh",
     "| /bin/bash", "| /bin/sh",
 ]
+
+
+def check_command_allowlist(command: str) -> str | None:
+    """Check if a command's binary is in ALLOWED_COMMANDS.
+
+    Extracts the first word (binary name) from the command string,
+    strips any path prefix (e.g. /usr/bin/ls -> ls), and checks
+    against the allowlist. Also rejects command substitution syntax
+    ($(...) and backticks) to prevent embedding denied commands.
+
+    Returns an error message string if denied, or None if allowed.
+    """
+    stripped = command.strip()
+    if not stripped:
+        return "[DENIED] Empty command."
+
+    # Reject command substitution — these can embed arbitrary commands
+    # that bypass the allowlist check on the outer command.
+    if "$(" in stripped or "`" in stripped:
+        return "[DENIED] Command substitution ($() and backticks) is not allowed."
+
+    # Reject process substitution <() and >()
+    if "<(" in stripped or ">(" in stripped:
+        return "[DENIED] Process substitution is not allowed."
+
+    # Reject output redirection — can overwrite arbitrary files.
+    # Matches >, >>, 1>, 2>, &>, but not -> (flag args like apt-get -t).
+    if re.search(r"(?<![-\w])\d*>{1,2}\s*[^&]|&>", stripped):
+        return "[DENIED] Output redirection is not allowed."
+
+    # Extract the first token — handles env vars, sudo prefixes, etc.
+    # Walk past leading variable assignments (FOO=bar cmd ...)
+    tokens = stripped.split()
+    binary = None
+    for token in tokens:
+        if "=" in token and not token.startswith("-"):
+            continue  # skip VAR=value prefixes
+        binary = token
+        break
+
+    if not binary:
+        return "[DENIED] Could not determine command."
+
+    # Strip path prefix: /usr/bin/ls -> ls
+    binary = binary.rsplit("/", 1)[-1]
+
+    if binary not in ALLOWED_COMMANDS:
+        return (
+            f"[DENIED] Command '{binary}' is not in the allowlist.\n"
+            f"Set EXTRA_COMMANDS={binary} or edit safety.py ALLOWED_COMMANDS to add it."
+        )
+    return None
 
 
 def _check_blocked_patterns(args, kwargs, tool_name, audit_logger):

@@ -12,6 +12,7 @@ To add a new tool:
 
 import importlib.util
 import os
+import re
 import shlex
 import subprocess
 from pathlib import Path
@@ -822,12 +823,14 @@ def run_command(command: str) -> str:
     Only use this when no dedicated tool covers the task. For example, use
     check_disk_usage for disk checks, query_journal_logs for logs, etc.
 
-    Dangerous commands (rm, dd, shutdown, reboot, etc.) are blocked.
+    Only allowlisted commands may be run. Unrecognized commands are denied.
     Use change_directory to change directories — 'cd' here is temporary.
 
     Args:
         command: The shell command to execute.
     """
+    from safety import check_command_allowlist
+
     # Intercept bare 'cd' commands — they don't persist across subprocesses.
     # Weak models use run_command("cd /path") instead of change_directory.
     stripped = command.strip()
@@ -847,6 +850,15 @@ def run_command(command: str) -> str:
             return f"[ERROR] Permission denied: {expanded}"
         except Exception as e:
             return f"[ERROR] {e}"
+
+    # Check each command in a pipeline against the allowlist
+    for segment in re.split(r"\s*[|;&]+\s*", stripped):
+        segment = segment.strip()
+        if not segment:
+            continue
+        denied = check_command_allowlist(segment)
+        if denied:
+            return denied
 
     return run_cmd(["bash", "-c", command])
 
