@@ -170,7 +170,7 @@ NAME      TYPE SIZE USED PRIO
 
 ## Step 1: Write the `@tool` Function
 
-Open `tools.py`. Find a natural place — swap is related to memory, so add it after `check_memory` (line 170).
+Open `tools.py`. Find a natural place — swap is related to memory, so add it after `check_memory` (line 171).
 
 ```python
 @tool

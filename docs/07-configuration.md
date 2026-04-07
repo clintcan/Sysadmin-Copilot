@@ -46,13 +46,17 @@ For a detailed analysis, see [Chapter 5 — Model Behavior and the Safety Layer]
 | `OPENAI_BASE_URL` | — | OpenAI-compatible endpoint URL, e.g. `http://localhost:1234/v1` |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model name |
 | `EXTRA_SERVICES` | — | Comma-separated services to add to `ALLOWED_SERVICES` at runtime |
+| `EXTRA_COMMANDS` | — | Comma-separated commands to add to `ALLOWED_COMMANDS` at runtime |
 | `LOG_PATHS` | `/var/log` | Comma-separated path prefixes allowed for `read_log_file` |
 
-`EXTRA_SERVICES` and `LOG_PATHS` let you extend the allowlists without editing Python source:
+`EXTRA_SERVICES`, `EXTRA_COMMANDS`, and `LOG_PATHS` let you extend the allowlists without editing Python source:
 
 ```bash
 # Allow the copilot to restart 'myapp' and 'myworker'
 EXTRA_SERVICES=myapp,myworker python agent.py
+
+# Allow additional commands in run_command (e.g. for security scanning)
+EXTRA_COMMANDS=nmap,tcpdump python agent.py
 
 # Allow reading from custom log directories
 LOG_PATHS=/var/log,/run/log,/home/myapp/logs python agent.py

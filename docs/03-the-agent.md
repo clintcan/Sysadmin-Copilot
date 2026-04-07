@@ -15,7 +15,7 @@ LangChain's `create_agent` implements this pattern. You hand it a model, a list 
 
 ## Building the Agent
 
-Here's the agent creation block from `agent.py` (lines 210–227):
+Here's the agent creation block from `agent.py` (lines 222–240):
 
 ```python
     # Initialize LLM and agent
@@ -24,6 +24,9 @@ Here's the agent creation block from `agent.py` (lines 210–227):
     except Exception as e:
         print(f"\033[31mFailed to initialize LLM: {e}\033[0m")
         sys.exit(1)
+
+    # Merge any write-tool declarations from plugins into the safety layer
+    safety_module.WRITE_TOOLS |= EXTRA_WRITE_TOOLS
 
     # Wrap tools with safety and audit layers
     wrapped_tools = safety.wrap_tools(ALL_TOOLS, audit)
