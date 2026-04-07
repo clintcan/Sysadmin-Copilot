@@ -2,7 +2,7 @@
 Ransomware tracking tools for Sysadmin Copilot.
 
 Monitors ransomware group activity, victim disclosures, IOCs, and
-negotiation data using the ransomware.live PRO API.
+cyberattack news using the ransomware.live PRO API.
 
 Requires RANSOMWARE_LIVE_API_KEY environment variable.
 Get an API key at: https://my.ransomware.live
@@ -51,7 +51,7 @@ def _api_get(endpoint, params=None, timeout=30):
         if e.code == 401:
             return {"error": "Invalid RANSOMWARE_LIVE_API_KEY."}
         if e.code == 404:
-            return None
+            return {"error": f"Not found: {endpoint}"}
         if e.code == 429:
             return {"error": "Rate limit exceeded. Wait a moment and try again."}
         return {"error": f"HTTP {e.code}: {e.reason}"}
@@ -70,22 +70,28 @@ def _safe(obj, key, default="N/A"):
 
 
 def _format_victim(v):
-    """Format a single victim record."""
-    lines = []
+    """Format a single victim record.
+
+    Field names vary by endpoint:
+      /victims/search uses post_title, group_name
+      /victims/, /victims/recent use victim, group
+    """
+    if not isinstance(v, dict):
+        return f"  {v}"
+
     name = _safe(v, "post_title", _safe(v, "victim", "Unknown"))
     group = _safe(v, "group_name", _safe(v, "group", "Unknown"))
     discovered = _safe(v, "discovered", "N/A")
-    attacked = _safe(v, "attacked", "")
+    if "T" in str(discovered):
+        discovered = str(discovered).split("T")[0]
+    elif " " in str(discovered):
+        discovered = str(discovered).split(" ")[0]
     country = _safe(v, "country", "??")
     activity = _safe(v, "activity", "")
     website = _safe(v, "website", "")
 
-    lines.append(f"  {name}")
-    date_str = f"Discovered: {discovered}"
-    if attacked and attacked != "N/A":
-        date_str += f"  |  Attacked: {attacked}"
-    lines.append(f"    Group: {group}  |  Country: {country}")
-    lines.append(f"    {date_str}")
+    lines = [f"  {name}"]
+    lines.append(f"    Group: {group}  |  Discovered: {discovered}  |  Country: {country}")
     if activity and activity != "N/A":
         lines.append(f"    Sector: {activity}")
     if website and website != "N/A":
@@ -95,6 +101,8 @@ def _format_victim(v):
     infostealer = v.get("infostealer")
     if isinstance(infostealer, dict) and infostealer.get("name"):
         lines.append(f"    Infostealer: {infostealer['name']}")
+    elif isinstance(infostealer, str) and infostealer:
+        lines.append(f"    Infostealer: {infostealer}")
 
     return "\n".join(lines)
 
@@ -104,6 +112,18 @@ def _check_error(result):
     if isinstance(result, dict) and "error" in result:
         return f"[ERROR] {result['error']}"
     return None
+
+
+def _extract_list(result, key):
+    """Extract a list from the API response wrapper dict.
+
+    PRO API responses are dicts like: {"client": "...", "count": N, "<key>": [...]}
+    """
+    if isinstance(result, dict):
+        return result.get(key, [])
+    if isinstance(result, list):
+        return result
+    return []
 
 
 # ─── Tools ───────────────────────────────────────────────────────────────────
@@ -128,14 +148,18 @@ def list_ransomware_victims(count: int = 10) -> str:
     err = _check_error(result)
     if err:
         return err
-    if not result or not isinstance(result, list):
+
+    victims = _extract_list(result, "victims")
+    if not victims:
         return "No recent victim data available."
 
-    lines = [f"Most recent {min(count, len(result))} ransomware victims:\n"]
-    for v in result[:count]:
+    lines = [f"Most recent {min(count, len(victims))} ransomware victims:\n"]
+    for v in victims[:count]:
         lines.append(_format_victim(v))
         lines.append("")
 
+    total = result.get("count", len(victims)) if isinstance(result, dict) else len(victims)
+    lines.append(f"Total available: {total}")
     return "\n".join(lines)
 
 
@@ -164,18 +188,20 @@ def search_ransomware_victims(query: str, country: str = None, sector: str = Non
     err = _check_error(result)
     if err:
         return err
-    if result is None or (isinstance(result, list) and len(result) == 0):
+
+    victims = _extract_list(result, "victims")
+    if not victims:
         return f"No ransomware victims found matching: {query}"
 
-    victims = result if isinstance(result, list) else []
+    total = result.get("count", len(victims)) if isinstance(result, dict) else len(victims)
     lines = [f"Ransomware victim search for: {query}\n"]
-    lines.append(f"Found {len(victims)} result(s):\n")
+    lines.append(f"Found {total} result(s):\n")
     for v in victims[:20]:
         lines.append(_format_victim(v))
         lines.append("")
 
-    if len(victims) > 20:
-        lines.append(f"  ... and {len(victims) - 20} more results")
+    if total > 20:
+        lines.append(f"  ... and {total - 20} more results")
 
     return "\n".join(lines)
 
@@ -222,19 +248,22 @@ def list_ransomware_victims_by_filter(
     err = _check_error(result)
     if err:
         return err
-    if not result or not isinstance(result, list):
+
+    victims = _extract_list(result, "victims")
+    if not victims:
         filter_desc = ", ".join(f"{k}={v}" for k, v in params.items())
         return f"No ransomware victims found for: {filter_desc}"
 
     filter_desc = ", ".join(f"{k}={v}" for k, v in params.items())
+    total = result.get("count", len(victims)) if isinstance(result, dict) else len(victims)
     lines = [f"Ransomware victims ({filter_desc}):\n"]
-    lines.append(f"Total: {len(result)}\n")
-    for v in result[:25]:
+    lines.append(f"Total: {total}\n")
+    for v in victims[:25]:
         lines.append(_format_victim(v))
         lines.append("")
 
-    if len(result) > 25:
-        lines.append(f"  ... and {len(result) - 25} more victims")
+    if total > 25:
+        lines.append(f"  ... and {total - 25} more victims")
 
     return "\n".join(lines)
 
@@ -253,22 +282,28 @@ def list_ransomware_groups() -> str:
     err = _check_error(result)
     if err:
         return err
-    if not result:
-        return "No ransomware group data available."
 
-    groups = result if isinstance(result, list) else []
+    groups = _extract_list(result, "groups")
     if not groups:
         return "No ransomware group data available."
 
-    # Sort by victim count descending if available
-    groups.sort(key=lambda g: g.get("victim_count", 0) if isinstance(g, dict) else 0, reverse=True)
+    # Sort by victim count descending
+    groups.sort(
+        key=lambda g: g.get("victims", 0) if isinstance(g, dict) else 0,
+        reverse=True,
+    )
 
-    lines = [f"Known ransomware groups ({len(groups)} total):\n"]
+    total = result.get("count", len(groups)) if isinstance(result, dict) else len(groups)
+    lines = [f"Known ransomware groups ({total} total):\n"]
     for g in groups:
         if isinstance(g, dict):
-            name = _safe(g, "name", "Unknown")
-            count = g.get("victim_count", "?")
-            lines.append(f"  {name:<30} Victims: {count}")
+            name = _safe(g, "group", _safe(g, "name", "Unknown"))
+            count = g.get("victims", "?")
+            altname = _safe(g, "altname", "")
+            entry = f"  {name:<30} Victims: {count}"
+            if altname and altname != "N/A":
+                entry += f"  (aka {altname})"
+            lines.append(entry)
         else:
             lines.append(f"  {g}")
 
@@ -280,8 +315,8 @@ def get_ransomware_group_info(group_name: str) -> str:
     """Get details about a specific ransomware group.
 
     Shows detailed information including TTPs (tactics, techniques,
-    procedures), tools used, victim count, activity period, and
-    available ransom notes and negotiations.
+    procedures), tools used, vulnerabilities exploited, victim count,
+    activity period, and available ransom notes and negotiations.
 
     Requires RANSOMWARE_LIVE_API_KEY environment variable.
 
@@ -293,28 +328,37 @@ def get_ransomware_group_info(group_name: str) -> str:
     err = _check_error(result)
     if err:
         return err
-    if result is None:
+    if not result or not isinstance(result, dict):
         return f"Ransomware group not found: {group_name}"
 
-    # Result may be a list or dict
-    g = result[0] if isinstance(result, list) and result else result
-    if not isinstance(g, dict):
-        return f"Ransomware group not found: {group_name}"
-
-    name = _safe(g, "name", group_name)
+    # PRO API returns group info directly in the response dict
+    g = result
+    name = _safe(g, "group", group_name)
     lines = [f"Ransomware group: {name}\n"]
 
-    for field, label in [
-        ("description", "Description"),
-        ("first_seen", "First seen"),
-        ("last_seen", "Last seen"),
-        ("victim_count", "Victim count"),
-    ]:
-        val = _safe(g, field, "")
-        if val and val != "N/A":
-            if field == "description" and len(str(val)) > 400:
-                val = str(val)[:400] + "..."
-            lines.append(f"  {label}: {val}")
+    desc = _safe(g, "description", "")
+    if desc and desc != "N/A":
+        if len(str(desc)) > 400:
+            desc = str(desc)[:400] + "..."
+        lines.append(f"  Description:  {desc}")
+
+    lines.append(f"  First seen:   {_safe(g, 'firstseen')}")
+    lines.append(f"  Last seen:    {_safe(g, 'lastseen')}")
+    lines.append(f"  Victims:      {_safe(g, 'victims')}")
+    lines.append(f"  Ransom notes: {g.get('ransomnotes_count', 'N/A')}")
+    lines.append(f"  Negotiations: {g.get('negotiation_count', 'N/A')}")
+
+    # Vulnerabilities
+    vulns = g.get("vulnerabilities")
+    if isinstance(vulns, list) and vulns:
+        lines.append(f"\n  Exploited vulnerabilities ({len(vulns)}):")
+        for v in vulns[:10]:
+            if isinstance(v, dict):
+                cve = _safe(v, "CVE", "N/A")
+                vendor = _safe(v, "Vendor", "")
+                product = _safe(v, "Product", "")
+                severity = _safe(v, "severity", "")
+                lines.append(f"    {cve}: {vendor} {product} ({severity})")
 
     # TTPs
     ttps = g.get("ttps")
@@ -328,7 +372,10 @@ def get_ransomware_group_info(group_name: str) -> str:
 
     # Tools
     tools = g.get("tools")
-    if isinstance(tools, list) and tools:
+    if isinstance(tools, dict) and tools:
+        tool_names = list(tools.keys())
+        lines.append(f"\n  Tools used: {', '.join(tool_names[:20])}")
+    elif isinstance(tools, list) and tools:
         lines.append(f"\n  Tools used: {', '.join(str(t) for t in tools[:20])}")
 
     # Locations/URLs
@@ -337,12 +384,14 @@ def get_ransomware_group_info(group_name: str) -> str:
         lines.append(f"\n  Leak site URLs:")
         for loc in locations[:5]:
             if isinstance(loc, dict):
-                slug = loc.get("slug") or loc.get("fqdn", "N/A")
+                slug = _safe(loc, "slug", _safe(loc, "fqdn", "N/A"))
                 avail = loc.get("available")
                 status = "online" if avail else "offline" if avail is not None else "unknown"
                 lines.append(f"    {slug} ({status})")
-            else:
-                lines.append(f"    {loc}")
+
+    url = _safe(g, "url", "")
+    if url and url != "N/A":
+        lines.append(f"\n  Ransomware.live: {url}")
 
     return "\n".join(lines)
 
@@ -374,47 +423,63 @@ def get_ransomware_iocs(group_name: str = None, ioc_type: str = None) -> str:
     err = _check_error(result)
     if err:
         return err
-    if result is None or (isinstance(result, list) and len(result) == 0):
-        if group_name:
-            return f"No IOCs found for group: {group_name}"
-        return "No IOC data available."
 
     if not group_name:
         # Listing groups with IOCs
-        lines = ["Ransomware groups with IOCs available:\n"]
-        if isinstance(result, list):
-            for item in result:
-                if isinstance(item, dict):
-                    name = _safe(item, "group", _safe(item, "name", "Unknown"))
-                    types = item.get("types", item.get("ioc_types", []))
-                    count = item.get("count", item.get("ioc_count", "?"))
-                    type_str = ", ".join(str(t) for t in types) if isinstance(types, list) else str(types)
-                    lines.append(f"  {name:<25} IOCs: {count}  Types: {type_str}")
-                else:
-                    lines.append(f"  {item}")
+        groups = _extract_list(result, "groups")
+        if not groups:
+            return "No IOC data available."
+        total = result.get("count", len(groups)) if isinstance(result, dict) else len(groups)
+        lines = [f"Ransomware groups with IOCs available ({total}):\n"]
+        for item in groups:
+            if isinstance(item, dict):
+                name = _safe(item, "group", "Unknown")
+                types = item.get("ioc_types", [])
+                type_str = ", ".join(str(t) for t in types) if isinstance(types, list) else str(types)
+                lines.append(f"  {name:<25} Types: {type_str}")
+            else:
+                lines.append(f"  {item}")
         return "\n".join(lines)
 
-    # Specific group IOCs
+    # Specific group IOCs — response structure varies
+    if isinstance(result, dict):
+        # Try common keys for IOC data
+        iocs = (
+            _extract_list(result, "iocs")
+            or _extract_list(result, "data")
+            or _extract_list(result, "indicators")
+        )
+        if not iocs:
+            # Maybe IOCs are grouped by type in the dict itself
+            ioc_sections = {k: v for k, v in result.items()
+                           if isinstance(v, list) and k not in ("client",)}
+            if ioc_sections:
+                lines = [f"IOCs for ransomware group: {group_name}\n"]
+                for type_key, values in ioc_sections.items():
+                    if values:
+                        lines.append(f"\n  {type_key} ({len(values)}):")
+                        for val in values[:30]:
+                            lines.append(f"    {val}")
+                        if len(values) > 30:
+                            lines.append(f"    ... and {len(values) - 30} more")
+                return "\n".join(lines)
+            return f"No IOCs found for group: {group_name}"
+    elif isinstance(result, list):
+        iocs = result
+    else:
+        return f"No IOCs found for group: {group_name}"
+
     lines = [f"IOCs for ransomware group: {group_name}\n"]
-    if isinstance(result, list):
-        lines.append(f"Total: {len(result)}\n")
-        for ioc in result[:50]:
-            if isinstance(ioc, dict):
-                ioc_val = _safe(ioc, "value", _safe(ioc, "ioc", "N/A"))
-                ioc_t = _safe(ioc, "type", _safe(ioc, "ioc_type", "unknown"))
-                lines.append(f"  [{ioc_t}] {ioc_val}")
-            else:
-                lines.append(f"  {ioc}")
-        if len(result) > 50:
-            lines.append(f"\n  ... and {len(result) - 50} more IOCs")
-    elif isinstance(result, dict):
-        for ioc_type_key, values in result.items():
-            if isinstance(values, list):
-                lines.append(f"\n  {ioc_type_key} ({len(values)}):")
-                for v in values[:20]:
-                    lines.append(f"    {v}")
-                if len(values) > 20:
-                    lines.append(f"    ... and {len(values) - 20} more")
+    lines.append(f"Total: {len(iocs)}\n")
+    for ioc in iocs[:50]:
+        if isinstance(ioc, dict):
+            ioc_val = _safe(ioc, "value", _safe(ioc, "ioc", "N/A"))
+            ioc_t = _safe(ioc, "type", _safe(ioc, "ioc_type", "unknown"))
+            lines.append(f"  [{ioc_t}] {ioc_val}")
+        else:
+            lines.append(f"  {ioc}")
+    if len(iocs) > 50:
+        lines.append(f"\n  ... and {len(iocs) - 50} more IOCs")
 
     return "\n".join(lines)
 
@@ -433,20 +498,23 @@ def list_sectors() -> str:
     err = _check_error(result)
     if err:
         return err
-    if not result:
+
+    sectors = _extract_list(result, "sectors")
+    if not sectors:
         return "No sector data available."
 
-    lines = ["Ransomware victim sectors:\n"]
-    if isinstance(result, list):
-        # Sort by count if available
-        result.sort(key=lambda s: s.get("count", 0) if isinstance(s, dict) else 0, reverse=True)
-        for item in result:
-            if isinstance(item, dict):
-                sector = _safe(item, "activity", _safe(item, "sector", "Unknown"))
-                count = item.get("count", item.get("victim_count", "?"))
-                lines.append(f"  {sector:<45} Victims: {count}")
-            else:
-                lines.append(f"  {item}")
+    # Sort by count descending
+    sectors.sort(key=lambda s: s.get("count", 0) if isinstance(s, dict) else 0, reverse=True)
+
+    total = result.get("count", len(sectors)) if isinstance(result, dict) else len(sectors)
+    lines = [f"Ransomware victim sectors ({total} total):\n"]
+    for item in sectors:
+        if isinstance(item, dict):
+            sector = _safe(item, "sector", _safe(item, "activity", "Unknown"))
+            count = item.get("count", "?")
+            lines.append(f"  {sector:<45} Victims: {count}")
+        else:
+            lines.append(f"  {item}")
 
     return "\n".join(lines)
 
@@ -468,9 +536,21 @@ def get_ransomware_stats() -> str:
         return "No statistics available."
 
     lines = ["Ransomware.live Statistics:\n"]
-    for key, val in result.items():
-        label = key.replace("_", " ").title()
-        lines.append(f"  {label}: {val}")
+
+    stats = result.get("stats", {})
+    if isinstance(stats, dict):
+        for key, val in stats.items():
+            label = key.replace("_", " ").title()
+            if isinstance(val, int) and val >= 1000:
+                lines.append(f"  {label}: {val:,}")
+            else:
+                lines.append(f"  {label}: {val}")
+    else:
+        lines.append(f"  Stats: {stats}")
+
+    last_update = result.get("last_update")
+    if last_update:
+        lines.append(f"\n  Last updated: {last_update}")
 
     return "\n".join(lines)
 
@@ -497,26 +577,34 @@ def get_recent_cyberattack_news(country: str = None, count: int = 10) -> str:
     err = _check_error(result)
     if err:
         return err
-    if not result or not isinstance(result, list):
+
+    articles = _extract_list(result, "results")
+    if not articles:
         return "No recent cyberattack news available."
 
     lines = [f"Recent cyberattack news:\n"]
-    for item in result[:count]:
+    for item in articles[:count]:
         if not isinstance(item, dict):
             continue
-        title = _safe(item, "title", _safe(item, "post_title", "Untitled"))
-        date = _safe(item, "date", _safe(item, "published", "N/A"))
-        source = _safe(item, "source", "")
-        url = _safe(item, "url", _safe(item, "link", ""))
+        title = _safe(item, "title", "Untitled")
+        date = _safe(item, "date", "N/A")
+        victim = _safe(item, "victim", "")
+        url = _safe(item, "url", "")
         country_val = _safe(item, "country", "")
+        ransomware = item.get("ransomware")
+        infostealer = item.get("infostealer")
 
         lines.append(f"  {title}")
         meta = f"    Date: {date}"
+        if victim and victim != "N/A":
+            meta += f"  |  Victim: {victim}"
         if country_val and country_val != "N/A":
             meta += f"  |  Country: {country_val}"
-        if source and source != "N/A":
-            meta += f"  |  Source: {source}"
         lines.append(meta)
+        if ransomware:
+            lines.append(f"    Ransomware: {ransomware}")
+        if infostealer:
+            lines.append(f"    Infostealer: {infostealer}")
         if url and url != "N/A":
             lines.append(f"    URL: {url}")
         lines.append("")
