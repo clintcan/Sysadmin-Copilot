@@ -200,4 +200,5 @@ def vt_domain_lookup(domain: str) -> str:
     ], 30)
 
 
-WRITE_TOOLS = {}
+REQUIRED_ENV = {"VT_API_KEY"}
+WRITE_TOOLS = set()

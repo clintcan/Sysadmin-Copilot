@@ -435,4 +435,5 @@ def recent_threat_iocs(days: int = 1, limit: int = 15) -> str:
     return "\n".join(lines)
 
 
+REQUIRED_ENV = {"ABUSECH_AUTH_KEY"}
 WRITE_TOOLS = set()

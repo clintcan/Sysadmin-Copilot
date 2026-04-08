@@ -612,4 +612,5 @@ def get_recent_cyberattack_news(country: str = None, count: int = 10) -> str:
     return "\n".join(lines)
 
 
+REQUIRED_ENV = {"RANSOMWARE_LIVE_API_KEY"}
 WRITE_TOOLS = set()

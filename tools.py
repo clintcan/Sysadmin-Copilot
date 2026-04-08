@@ -869,6 +869,59 @@ def run_command(command: str) -> str:
 # PLUGIN LOADER
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _check_plugin_requirements(py_file, extra_dir):
+    """Check if a plugin's requirements are met before loading.
+
+    Plugins can declare optional module-level constants:
+        REQUIRED_ENV  = {"API_KEY_NAME"}     — skip if env var not set
+        REQUIRED_BINS = {"nmap", "nuclei"}   — skip if binary not in PATH
+
+    Requirements are parsed from the source file without importing,
+    so unmet dependencies don't trigger import errors.
+
+    Returns (ok: bool, reason: str | None).
+    """
+    try:
+        with open(py_file) as f:
+            source = f.read()
+    except OSError:
+        return True, None  # can't read = let the loader handle it
+
+    import ast
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return True, None  # let the loader report the syntax error
+
+    for node in ast.iter_child_nodes(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if not isinstance(target, ast.Name):
+                continue
+
+            if target.id == "REQUIRED_ENV" and isinstance(node.value, ast.Set):
+                env_names = [
+                    elt.value for elt in node.value.elts
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+                ]
+                missing = [v for v in env_names if not os.environ.get(v)]
+                if missing:
+                    return False, f"missing env: {', '.join(missing)}"
+
+            if target.id == "REQUIRED_BINS" and isinstance(node.value, ast.Set):
+                bin_names = [
+                    elt.value for elt in node.value.elts
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+                ]
+                import shutil
+                missing = [b for b in bin_names if not shutil.which(b)]
+                if missing:
+                    return False, f"missing binaries: {', '.join(missing)}"
+
+    return True, None
+
+
 def _load_extra_tools() -> tuple[list, set]:
     """Auto-discover tools from tools_extra/ (including subfolders).
 
@@ -877,6 +930,10 @@ def _load_extra_tools() -> tuple[list, set]:
         tools_extra/network/scanner.py       (categorized)
         tools_extra/network/dns_tools.py     (categorized)
 
+    Plugins can gate loading via module-level constants:
+        REQUIRED_ENV  = {"API_KEY"}      — skip if env var not set
+        REQUIRED_BINS = {"nmap"}         — skip if binary not in PATH
+
     Returns (tools_list, write_tools_set).
     Files and directories starting with '_' are skipped.
     Errors are warned but don't crash startup.
@@ -884,12 +941,21 @@ def _load_extra_tools() -> tuple[list, set]:
     extra_dir = Path(__file__).parent / "tools_extra"
     tools = []
     write_tools = set()
+    skipped = []
 
     if not extra_dir.is_dir():
         return tools, write_tools
 
     for py_file in sorted(extra_dir.glob("**/*.py")):
         if any(part.startswith("_") for part in py_file.relative_to(extra_dir).parts):
+            continue
+
+        rel_path = py_file.relative_to(extra_dir)
+
+        # Check requirements before importing
+        ok, reason = _check_plugin_requirements(py_file, extra_dir)
+        if not ok:
+            skipped.append((rel_path, reason))
             continue
 
         # Build a unique module name from the relative path:
@@ -903,7 +969,6 @@ def _load_extra_tools() -> tuple[list, set]:
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
         except Exception as e:
-            rel_path = py_file.relative_to(extra_dir)
             print(f"\033[33m[WARNING] Failed to load plugin {rel_path}: {e}\033[0m")
             continue
 
@@ -932,6 +997,10 @@ def _load_extra_tools() -> tuple[list, set]:
                     f"LangChain may not call the correct one.\033[0m"
                 )
             seen[t.name] = True
+
+    if skipped:
+        names = ", ".join(f"{p} ({r})" for p, r in skipped)
+        print(f"\033[90mSkipped {len(skipped)} plugin(s): {names}\033[0m")
 
     return tools, write_tools
 

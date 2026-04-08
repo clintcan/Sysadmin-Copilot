@@ -257,4 +257,5 @@ def get_abusive_ips(confidence_minimum: int = 90, limit: int = 20) -> str:
     return "\n".join(lines)
 
 
+REQUIRED_ENV = {"ABUSEIPDB_API_KEY"}
 WRITE_TOOLS = set()
