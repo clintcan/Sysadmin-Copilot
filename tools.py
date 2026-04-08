@@ -266,11 +266,13 @@ def stop_service(service: str) -> str:
 
 @tool
 def check_open_ports() -> str:
-    """Show what ports are listening on THIS local machine only (uses ss).
+    """Show what ports are listening on THIS local machine (uses ss).
 
-    Shows which local services are listening and their process names.
-    Only works for the machine you are running on — NOT for remote hosts.
-    To scan ports on a remote/different host or IP address, use nmap_scan instead.
+    WARNING: This tool has NO host parameter — it ONLY checks the local
+    machine where the copilot is running. It CANNOT scan remote hosts.
+
+    If the user asks to check ports on a remote host, IP address, or
+    domain name, do NOT use this tool — use nmap_scan instead.
     """
     return run_cmd(["ss", "-tulnp"])
 
