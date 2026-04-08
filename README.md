@@ -16,26 +16,44 @@ I checked your system and found a few things:
 Recommendation: Investigate PID 28341, and consider cleaning up old logs.
 ```
 
-## Quick Start
+## Installation
 
-### 1. Install dependencies
+### Automated install (recommended)
+
+The installer creates a dedicated service account, installs the app, configures sudoers, and sets up a wrapper command:
+
+```bash
+sudo bash install.sh
+```
+
+The interactive installer will:
+1. Ask you to choose an LLM provider (Ollama, OpenAI, or Anthropic)
+2. Create the `sysadmin-copilot` system account with appropriate groups
+3. Install the app and Python dependencies to `/opt/sysadmin-copilot/`
+4. Write the `.env` file with your API key (mode 600)
+5. Generate and validate the sudoers file
+6. Create the `/usr/local/bin/sysadmin-copilot` wrapper command
+
+Then run from any sudoer account:
+
+```bash
+sysadmin-copilot
+```
+
+### Manual / development setup
 
 ```bash
 pip install -r requirements.txt
+python agent.py
 ```
 
-### 2. Set up your LLM
+Set up your LLM:
 
 **Option A: Ollama (recommended for demos — fully self-hosted)**
 
 ```bash
-# Install Ollama
 curl -fsSL https://ollama.com/install.sh | sh
-
-# Pull a model
 ollama pull llama3.1:8b
-
-# Run the copilot
 python agent.py
 ```
 
@@ -56,6 +74,28 @@ LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... python agent.py
 ```bash
 pip install langchain-openai
 LLM_PROVIDER=openai OPENAI_BASE_URL=http://localhost:1234/v1 OPENAI_MODEL=my-model OPENAI_API_KEY=not-needed python agent.py
+```
+
+### Shell scripts
+
+| Script | Purpose | Run as |
+|--------|---------|--------|
+| `install.sh` | Full automated install — service account, app, sudoers, wrapper | `sudo bash install.sh` |
+| `sysadmin-copilot-configure.sh` | Reconfigure LLM provider, API key, and sudoers after install | `sudo bash sysadmin-copilot-configure.sh` |
+| `sync-sudoers.sh` | Regenerate sudoers from `ALLOWED_SERVICES` in `safety.py` | `sudo bash sync-sudoers.sh` |
+| `tools_extra/red_team/install-redteam.sh` | Install red team tool prerequisites (nmap, nuclei, etc.) | `sudo bash tools_extra/red_team/install-redteam.sh` |
+
+**Typical workflow after install:**
+
+```bash
+# Change LLM provider or API key
+sudo bash sysadmin-copilot-configure.sh
+
+# After editing ALLOWED_SERVICES in safety.py
+sudo bash sync-sudoers.sh
+
+# To enable red team / security assessment tools
+sudo bash tools_extra/red_team/install-redteam.sh
 ```
 
 ### 3. Talk to your server
@@ -91,8 +131,13 @@ sysadmin-copilot/
 ├── safety.py          # Permission tiers, allowlists, confirmation prompts
 ├── audit.py           # Command audit logging
 ├── tools_extra/       # Drop-in directory for custom tools (auto-discovered)
-│   ├── __init__.py
-│   └── _example.py    # Template (skipped by _ prefix)
+│   ├── _example.py    # Template (skipped by _ prefix)
+│   ├── threat_intel.py # VirusTotal + IOC extraction
+│   ├── breach_check.py # Have I Been Pwned breach monitoring
+│   ├── abuse_ch.py    # URLhaus, MalwareBazaar, ThreatFox
+│   ├── abuseipdb.py   # IP reputation scoring
+│   ├── ransomware_tracker.py  # ransomware.live victim/group tracking
+│   └── red_team/      # Security assessment tools (nmap, nuclei, etc.)
 ├── install.sh         # Automated service account installer
 ├── sync-sudoers.sh    # Regenerate sudoers from safety.py ALLOWED_SERVICES
 ├── requirements.txt   # Python dependencies
@@ -220,7 +265,13 @@ The safety and audit wrappers are applied automatically — no changes needed in
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model name |
 | `ANTHROPIC_API_KEY` | — | Anthropic API key |
 | `EXTRA_SERVICES` | — | Comma-separated services to add to `ALLOWED_SERVICES` at runtime, e.g. `myapp,worker` |
+| `EXTRA_COMMANDS` | — | Comma-separated commands to add to `ALLOWED_COMMANDS` for `run_command`, e.g. `nmap,tcpdump` |
 | `LOG_PATHS` | `/var/log` | Comma-separated path prefixes allowed for `read_log_file`, e.g. `/var/log,/run/log` |
+| `VT_API_KEY` | — | VirusTotal API key (free tier) for hash/IP/domain lookups |
+| `HIBP_API_KEY` | — | Have I Been Pwned API key for breach/leak monitoring |
+| `ABUSECH_AUTH_KEY` | — | abuse.ch auth key (free) for URLhaus, MalwareBazaar, ThreatFox |
+| `ABUSEIPDB_API_KEY` | — | AbuseIPDB API key (free tier, 1K checks/day) for IP reputation |
+| `RANSOMWARE_LIVE_API_KEY` | — | ransomware.live PRO API key for ransomware tracking |
 
 ## Documentation
 
