@@ -83,7 +83,6 @@ LLM_PROVIDER=openai OPENAI_BASE_URL=http://localhost:1234/v1 OPENAI_MODEL=my-mod
 | `install.sh` | Full automated install — service account, app, sudoers, wrapper | `sudo bash install.sh` |
 | `sysadmin-copilot-configure.sh` | Reconfigure LLM provider, API key, and sudoers after install | `sudo bash sysadmin-copilot-configure.sh` |
 | `sync-sudoers.sh` | Regenerate sudoers from `ALLOWED_SERVICES` in `safety.py` | `sudo bash sync-sudoers.sh` |
-| `tools_extra/red_team/install-redteam.sh` | Install red team tool prerequisites (nmap, nuclei, etc.) | `sudo bash tools_extra/red_team/install-redteam.sh` |
 
 **Typical workflow after install:**
 
@@ -93,9 +92,6 @@ sudo bash sysadmin-copilot-configure.sh
 
 # After editing ALLOWED_SERVICES in safety.py
 sudo bash sync-sudoers.sh
-
-# To enable red team / security assessment tools
-sudo bash tools_extra/red_team/install-redteam.sh
 ```
 
 ### 3. Talk to your server
@@ -136,8 +132,7 @@ sysadmin-copilot/
 │   ├── breach_check.py # Have I Been Pwned breach monitoring
 │   ├── abuse_ch.py    # URLhaus, MalwareBazaar, ThreatFox
 │   ├── abuseipdb.py   # IP reputation scoring
-│   ├── ransomware_tracker.py  # ransomware.live victim/group tracking
-│   └── red_team/      # Security assessment tools (nmap, nuclei, etc.)
+│   └── ransomware_tracker.py  # ransomware.live victim/group tracking
 ├── install.sh         # Automated service account installer
 ├── sync-sudoers.sh    # Regenerate sudoers from safety.py ALLOWED_SERVICES
 ├── requirements.txt   # Python dependencies
