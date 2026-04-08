@@ -41,6 +41,12 @@ from audit import AuditLogger
 # Override via MAX_HISTORY_CHARS env var if you use a model with a smaller window.
 MAX_HISTORY_CHARS = int(os.environ.get("MAX_HISTORY_CHARS", "100000"))
 
+# Maximum output tokens for LLM responses. Tool output can be up to 8000 chars,
+# and the LLM needs enough room to summarize multiple tool results in one turn.
+# Ollama defaults are often too low (2048), causing responses to cut off mid-sentence.
+# Override via MAX_OUTPUT_TOKENS env var if your model supports more or less.
+MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "4096"))
+
 
 def _count_history_chars(history: list) -> int:
     """Estimate conversation history size in characters.
@@ -117,7 +123,8 @@ def get_llm():
             print("Make sure Ollama is running: ollama serve")
             sys.exit(1)
 
-        return ChatOllama(model=model, base_url=base_url, temperature=0)
+        return ChatOllama(model=model, base_url=base_url, temperature=0,
+                         num_predict=MAX_OUTPUT_TOKENS)
 
     elif provider == "openai":
         try:
@@ -137,7 +144,8 @@ def get_llm():
             print(f"\033[90mUsing OpenAI-compatible ({model}) at {base_url}\033[0m")
         else:
             print(f"\033[90mUsing OpenAI ({model})\033[0m")
-        return ChatOpenAI(model=model, base_url=base_url, temperature=0)
+        return ChatOpenAI(model=model, base_url=base_url, temperature=0,
+                         max_tokens=MAX_OUTPUT_TOKENS)
 
     elif provider == "anthropic":
         try:
@@ -153,7 +161,8 @@ def get_llm():
 
         model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
         print(f"\033[90mUsing Anthropic ({model})\033[0m")
-        return ChatAnthropic(model=model, temperature=0)
+        return ChatAnthropic(model=model, temperature=0,
+                            max_tokens=MAX_OUTPUT_TOKENS)
 
     else:
         print(f"\033[31mUnknown LLM_PROVIDER: {provider}\033[0m")
