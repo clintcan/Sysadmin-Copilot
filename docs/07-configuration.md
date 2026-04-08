@@ -37,19 +37,41 @@ For a detailed analysis, see [Chapter 5 — Model Behavior and the Safety Layer]
 
 ## Environment Variables Reference
 
+### LLM Provider
+
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `LLM_PROVIDER` | `ollama` | Backend: `ollama`, `openai`, `anthropic` |
 | `OLLAMA_MODEL` | `llama3.1:8b` | Ollama model name |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
+| `OLLAMA_NUM_CTX` | auto | Ollama context window in tokens. Auto-sized based on loaded tools; override if needed |
 | `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model name |
 | `OPENAI_BASE_URL` | — | OpenAI-compatible endpoint URL, e.g. `http://localhost:1234/v1` |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model name |
+| `MAX_OUTPUT_TOKENS` | `4096` | Maximum output tokens for LLM responses (all providers). Prevents truncated summaries when tool output is large |
+| `MAX_HISTORY_CHARS` | `100000` | Max conversation history size in chars before trimming (~25K tokens) |
+
+### Safety & Permissions
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
 | `EXTRA_SERVICES` | — | Comma-separated services to add to `ALLOWED_SERVICES` at runtime |
 | `EXTRA_COMMANDS` | — | Comma-separated commands to add to `ALLOWED_COMMANDS` at runtime |
 | `LOG_PATHS` | `/var/log` | Comma-separated path prefixes allowed for `read_log_file` |
 
-`EXTRA_SERVICES`, `EXTRA_COMMANDS`, and `LOG_PATHS` let you extend the allowlists without editing Python source:
+### Threat Intelligence API Keys
+
+Plugins are lazy-loaded: only plugins whose required API keys are set will load at startup. This keeps the tool count low for small models with limited context windows.
+
+| Variable | Free? | Plugin | Purpose |
+|----------|-------|--------|---------|
+| `VT_API_KEY` | Yes (free tier) | `threat_intel.py` | VirusTotal — hash/IP/domain lookups, IOC extraction |
+| `HIBP_API_KEY` | Partially | `breach_check.py` | Have I Been Pwned — email/domain breach monitoring |
+| `ABUSECH_AUTH_KEY` | Yes (free key) | `abuse_ch.py` | abuse.ch — URLhaus, MalwareBazaar, ThreatFox |
+| `ABUSEIPDB_API_KEY` | Yes (1K/day) | `abuseipdb.py` | AbuseIPDB — IP reputation scoring and blacklists |
+| `RANSOMWARE_LIVE_API_KEY` | Paid | `ransomware_tracker.py` | ransomware.live PRO — ransomware group/victim tracking |
+
+`breach_check.py` always loads because some of its tools (password check, domain breaches, recent breaches) work without a key.
 
 ```bash
 # Allow the copilot to restart 'myapp' and 'myworker'
@@ -60,6 +82,9 @@ EXTRA_COMMANDS=nmap,tcpdump python agent.py
 
 # Allow reading from custom log directories
 LOG_PATHS=/var/log,/run/log,/home/myapp/logs python agent.py
+
+# Enable threat intel plugins
+VT_API_KEY=your-key ABUSEIPDB_API_KEY=your-key python agent.py
 ```
 
 ---

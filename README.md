@@ -249,24 +249,41 @@ The safety and audit wrappers are applied automatically — no changes needed in
 
 ## Environment Variables
 
+### LLM Provider
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LLM_PROVIDER` | `ollama` | LLM backend: `ollama`, `openai`, `anthropic` |
 | `OLLAMA_MODEL` | `llama3.1:8b` | Ollama model name |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
+| `OLLAMA_NUM_CTX` | auto | Ollama context window size in tokens. Auto-sized based on loaded tools; override if needed |
 | `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model name |
 | `OPENAI_BASE_URL` | — | OpenAI-compatible endpoint URL (e.g. `http://localhost:1234/v1`) |
 | `OPENAI_API_KEY` | — | OpenAI API key |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model name |
 | `ANTHROPIC_API_KEY` | — | Anthropic API key |
+| `MAX_OUTPUT_TOKENS` | `4096` | Maximum output tokens for LLM responses (all providers) |
+| `MAX_HISTORY_CHARS` | `100000` | Max conversation history size in chars before trimming (~25K tokens) |
+
+### Safety & Permissions
+
+| Variable | Default | Description |
+|----------|---------|-------------|
 | `EXTRA_SERVICES` | — | Comma-separated services to add to `ALLOWED_SERVICES` at runtime, e.g. `myapp,worker` |
 | `EXTRA_COMMANDS` | — | Comma-separated commands to add to `ALLOWED_COMMANDS` for `run_command`, e.g. `nmap,tcpdump` |
 | `LOG_PATHS` | `/var/log` | Comma-separated path prefixes allowed for `read_log_file`, e.g. `/var/log,/run/log` |
-| `VT_API_KEY` | — | VirusTotal API key (free tier) for hash/IP/domain lookups |
-| `HIBP_API_KEY` | — | Have I Been Pwned API key for breach/leak monitoring |
-| `ABUSECH_AUTH_KEY` | — | abuse.ch auth key (free) for URLhaus, MalwareBazaar, ThreatFox |
-| `ABUSEIPDB_API_KEY` | — | AbuseIPDB API key (free tier, 1K checks/day) for IP reputation |
-| `RANSOMWARE_LIVE_API_KEY` | — | ransomware.live PRO API key for ransomware tracking |
+
+### Threat Intelligence API Keys
+
+Plugins are lazy-loaded — only plugins whose API keys are set will load. This keeps tool count low for small models.
+
+| Variable | Free? | Plugin | Description |
+|----------|-------|--------|-------------|
+| `VT_API_KEY` | Yes (free tier) | `threat_intel.py` | VirusTotal — hash/IP/domain lookups, IOC extraction |
+| `HIBP_API_KEY` | Partially | `breach_check.py` | Have I Been Pwned — email/domain breach monitoring (some tools free without key) |
+| `ABUSECH_AUTH_KEY` | Yes (free key) | `abuse_ch.py` | abuse.ch — URLhaus, MalwareBazaar, ThreatFox. Get key at https://auth.abuse.ch/ |
+| `ABUSEIPDB_API_KEY` | Yes (1K/day) | `abuseipdb.py` | AbuseIPDB — IP reputation scoring and blacklists |
+| `RANSOMWARE_LIVE_API_KEY` | Paid | `ransomware_tracker.py` | ransomware.live PRO — ransomware group/victim tracking |
 
 ## Documentation
 
