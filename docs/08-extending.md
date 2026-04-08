@@ -72,8 +72,52 @@ Subfolders starting with `_` are skipped entirely (useful for templates or work-
 - Each `@tool` function is auto-registered — no need to edit `ALL_TOOLS`
 - Import `run_cmd` from `tools` for subprocess execution
 - Declare `WRITE_TOOLS = {"tool_name"}` for tools that modify system state
+- Declare `REQUIRED_ENV = {"API_KEY"}` to skip the plugin when the env var is not set
+- Declare `REQUIRED_BINS = {"nmap"}` to skip the plugin when a binary is not installed
 - Errors in a plugin file are warned but don't crash startup
 - Plugins load in sorted path order (subfolders sorted alphabetically)
+
+### Conditional loading (REQUIRED_ENV / REQUIRED_BINS)
+
+Plugins can declare dependencies that are checked *before* the file is imported. If a requirement is not met, the plugin is silently skipped — no import errors, no wasted context tokens.
+
+```python
+# tools_extra/my_api_tool.py
+from langchain_core.tools import tool
+
+@tool
+def my_api_lookup(query: str) -> str:
+    """Look up something on MyAPI."""
+    ...
+
+# Only load this plugin if the API key is set
+REQUIRED_ENV = {"MY_API_KEY"}
+WRITE_TOOLS = set()
+```
+
+```python
+# tools_extra/nmap_tools.py
+from langchain_core.tools import tool
+from tools import run_cmd
+
+@tool
+def custom_scan(target: str) -> str:
+    """Run a custom nmap scan."""
+    return run_cmd(["nmap", "-sV", target])
+
+# Only load if nmap is installed
+REQUIRED_BINS = {"nmap"}
+WRITE_TOOLS = set()
+```
+
+You can combine both — the plugin loads only if all env vars are set AND all binaries are in PATH:
+
+```python
+REQUIRED_ENV = {"SHODAN_API_KEY"}
+REQUIRED_BINS = {"nmap"}
+```
+
+This is important for keeping the tool count manageable. Each tool's name, docstring, and parameter schema are sent to the LLM on every call. Small models (e.g. llama3.1:8b with 8K context) can be overwhelmed if too many tools load. With conditional loading, only tools the user can actually use are registered.
 
 ### Startup output
 
@@ -81,6 +125,7 @@ When plugins are loaded you'll see:
 
 ```
 Loaded 2 extra tool(s): check_docker_containers, check_docker_images
+Skipped 3 plugin(s): my_api.py (missing env: MY_API_KEY), nmap_tools.py (missing binaries: nmap), ...
 ```
 
 If a plugin has a syntax error:

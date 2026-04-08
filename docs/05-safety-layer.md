@@ -405,7 +405,7 @@ All tools use `run_cmd(cmd, timeout)` which calls `subprocess.run(cmd, ...)` wit
 
 ### Code paths through `bash -c`
 
-**`run_command` — freeform shell** (`tools.py:820–863`): Takes a user-supplied `command` string and runs `bash -c {command}`. Bare `cd` commands are intercepted and handled via `os.chdir()` instead (see [Chapter 4 — Tools](04-tools.md#bare-cd-interception)). Before execution, each segment in the command pipeline is checked against `ALLOWED_COMMANDS` via `check_command_allowlist()`, which also rejects command substitution, process substitution, and output redirection. The blocked patterns layer provides additional defense-in-depth, and OS permissions further constrain what can run.
+**`run_command` — freeform shell** (`tools.py:822–865`): Takes a user-supplied `command` string and runs `bash -c {command}`. Bare `cd` commands are intercepted and handled via `os.chdir()` instead (see [Chapter 4 — Tools](04-tools.md#bare-cd-interception)). Before execution, each segment in the command pipeline is checked against `ALLOWED_COMMANDS` via `check_command_allowlist()`, which also rejects command substitution, process substitution, and output redirection. The blocked patterns layer provides additional defense-in-depth, and OS permissions further constrain what can run.
 
 **4 tools use `shlex.quote()` on user parameters:**
 

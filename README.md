@@ -262,7 +262,7 @@ The safety and audit wrappers are applied automatically — no changes needed in
 | `OPENAI_API_KEY` | — | OpenAI API key |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model name |
 | `ANTHROPIC_API_KEY` | — | Anthropic API key |
-| `MAX_OUTPUT_TOKENS` | `4096` | Maximum output tokens for LLM responses (all providers) |
+| `MAX_OUTPUT_TOKENS` | per-provider | Maximum output tokens. Defaults: Ollama 4096, OpenAI 16384, Anthropic 8192. Overrides all providers when set |
 | `MAX_HISTORY_CHARS` | `100000` | Max conversation history size in chars before trimming (~25K tokens) |
 
 ### Safety & Permissions
@@ -284,6 +284,7 @@ Plugins are lazy-loaded — only plugins whose API keys are set will load. This 
 | `ABUSECH_AUTH_KEY` | Yes (free key) | `abuse_ch.py` | abuse.ch — URLhaus, MalwareBazaar, ThreatFox. Get key at https://auth.abuse.ch/ |
 | `ABUSEIPDB_API_KEY` | Yes (1K/day) | `abuseipdb.py` | AbuseIPDB — IP reputation scoring and blacklists |
 | `RANSOMWARE_LIVE_API_KEY` | Paid | `ransomware_tracker.py` | ransomware.live PRO — ransomware group/victim tracking |
+| `LEAKCHECK_API_KEY` | Paid | `leakcheck.py` | LeakCheck Pro — detailed breach search by email, username, domain, phone |
 
 ## Documentation
 

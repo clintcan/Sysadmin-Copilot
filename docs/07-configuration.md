@@ -48,7 +48,7 @@ For a detailed analysis, see [Chapter 5 — Model Behavior and the Safety Layer]
 | `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model name |
 | `OPENAI_BASE_URL` | — | OpenAI-compatible endpoint URL, e.g. `http://localhost:1234/v1` |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model name |
-| `MAX_OUTPUT_TOKENS` | `4096` | Maximum output tokens for LLM responses (all providers). Prevents truncated summaries when tool output is large |
+| `MAX_OUTPUT_TOKENS` | per-provider | Maximum output tokens for LLM responses. Defaults: Ollama 4096, OpenAI 16384, Anthropic 8192. Overrides all providers when set |
 | `MAX_HISTORY_CHARS` | `100000` | Max conversation history size in chars before trimming (~25K tokens) |
 
 ### Safety & Permissions
@@ -70,8 +70,9 @@ Plugins are lazy-loaded: only plugins whose required API keys are set will load 
 | `ABUSECH_AUTH_KEY` | Yes (free key) | `abuse_ch.py` | abuse.ch — URLhaus, MalwareBazaar, ThreatFox |
 | `ABUSEIPDB_API_KEY` | Yes (1K/day) | `abuseipdb.py` | AbuseIPDB — IP reputation scoring and blacklists |
 | `RANSOMWARE_LIVE_API_KEY` | Paid | `ransomware_tracker.py` | ransomware.live PRO — ransomware group/victim tracking |
+| `LEAKCHECK_API_KEY` | Paid | `leakcheck.py` | LeakCheck Pro — detailed breach search by email, username, domain, phone |
 
-`breach_check.py` always loads because some of its tools (password check, domain breaches, recent breaches) work without a key.
+`breach_check.py` and `leakcheck.py` always load because some of their tools work without a key (HIBP public endpoints and LeakCheck public API).
 
 ```bash
 # Allow the copilot to restart 'myapp' and 'myworker'
