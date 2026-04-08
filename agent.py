@@ -123,8 +123,23 @@ def get_llm():
             print("Make sure Ollama is running: ollama serve")
             sys.exit(1)
 
+        # Estimate context needed: tool definitions + system prompt + history room.
+        # Each tool's name + docstring + schema averages ~200 tokens.
+        # Add room for system prompt (~500 tokens) and conversation history.
+        tool_tokens = len(ALL_TOOLS) * 200
+        system_tokens = 500
+        history_room = 4096  # minimum room for conversation + response
+        min_ctx = tool_tokens + system_tokens + history_room + MAX_OUTPUT_TOKENS
+        # Round up to nearest 1024, minimum 8192
+        num_ctx = max(8192, ((min_ctx + 1023) // 1024) * 1024)
+        num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", str(num_ctx)))
+
+        if num_ctx > 8192:
+            print(f"\033[90mContext window: {num_ctx} tokens "
+                  f"({len(ALL_TOOLS)} tools need ~{tool_tokens} tokens)\033[0m")
+
         return ChatOllama(model=model, base_url=base_url, temperature=0,
-                         num_predict=MAX_OUTPUT_TOKENS)
+                         num_predict=MAX_OUTPUT_TOKENS, num_ctx=num_ctx)
 
     elif provider == "openai":
         try:
