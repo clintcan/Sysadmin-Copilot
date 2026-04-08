@@ -41,11 +41,15 @@ from audit import AuditLogger
 # Override via MAX_HISTORY_CHARS env var if you use a model with a smaller window.
 MAX_HISTORY_CHARS = int(os.environ.get("MAX_HISTORY_CHARS", "100000"))
 
-# Maximum output tokens for LLM responses. Tool output can be up to 8000 chars,
-# and the LLM needs enough room to summarize multiple tool results in one turn.
-# Ollama defaults are often too low (2048), causing responses to cut off mid-sentence.
-# Override via MAX_OUTPUT_TOKENS env var if your model supports more or less.
-MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "4096"))
+# Maximum output tokens per provider. Ollama defaults are often too low (2048),
+# causing responses to cut off mid-sentence when summarizing large tool output.
+# Cloud providers have generous defaults — we leave them alone unless overridden.
+# Override any provider via MAX_OUTPUT_TOKENS env var.
+_MAX_OUTPUT_TOKENS_DEFAULT = {
+    "ollama": 4096,
+    "openai": 16384,
+    "anthropic": 8192,
+}
 
 
 def _count_history_chars(history: list) -> int:
@@ -126,11 +130,14 @@ def get_llm():
         # Estimate context needed: tool definitions + system prompt + history room.
         # Each tool's name + docstring + schema averages ~200 tokens.
         # Add room for system prompt (~500 tokens) and conversation history.
+        max_tokens = int(os.environ.get(
+            "MAX_OUTPUT_TOKENS", _MAX_OUTPUT_TOKENS_DEFAULT["ollama"]))
+
+        # Estimate context needed: tool definitions + system prompt + history room.
         tool_tokens = len(ALL_TOOLS) * 200
         system_tokens = 500
-        history_room = 4096  # minimum room for conversation + response
-        min_ctx = tool_tokens + system_tokens + history_room + MAX_OUTPUT_TOKENS
-        # Round up to nearest 1024, minimum 8192
+        history_room = 4096
+        min_ctx = tool_tokens + system_tokens + history_room + max_tokens
         num_ctx = max(8192, ((min_ctx + 1023) // 1024) * 1024)
         num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", str(num_ctx)))
 
@@ -139,7 +146,7 @@ def get_llm():
                   f"({len(ALL_TOOLS)} tools need ~{tool_tokens} tokens)\033[0m")
 
         return ChatOllama(model=model, base_url=base_url, temperature=0,
-                         num_predict=MAX_OUTPUT_TOKENS, num_ctx=num_ctx)
+                         num_predict=max_tokens, num_ctx=num_ctx)
 
     elif provider == "openai":
         try:
@@ -159,8 +166,10 @@ def get_llm():
             print(f"\033[90mUsing OpenAI-compatible ({model}) at {base_url}\033[0m")
         else:
             print(f"\033[90mUsing OpenAI ({model})\033[0m")
+        max_tokens = int(os.environ.get(
+            "MAX_OUTPUT_TOKENS", _MAX_OUTPUT_TOKENS_DEFAULT["openai"]))
         return ChatOpenAI(model=model, base_url=base_url, temperature=0,
-                         max_tokens=MAX_OUTPUT_TOKENS)
+                         max_tokens=max_tokens)
 
     elif provider == "anthropic":
         try:
@@ -176,8 +185,10 @@ def get_llm():
 
         model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
         print(f"\033[90mUsing Anthropic ({model})\033[0m")
+        max_tokens = int(os.environ.get(
+            "MAX_OUTPUT_TOKENS", _MAX_OUTPUT_TOKENS_DEFAULT["anthropic"]))
         return ChatAnthropic(model=model, temperature=0,
-                            max_tokens=MAX_OUTPUT_TOKENS)
+                            max_tokens=max_tokens)
 
     else:
         print(f"\033[31mUnknown LLM_PROVIDER: {provider}\033[0m")
