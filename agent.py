@@ -183,14 +183,14 @@ def get_llm():
         if model_max_ctx is None:
             model_max_ctx = _CONTEXT_WINDOWS.get(model, 8192)
 
-        # Set num_ctx: large enough for tools + conversation, but not the
-        # model's full capacity (which wastes RAM and slows inference).
-        # Default practical cap: 32K for most local models. Users can
-        # override with OLLAMA_NUM_CTX for models that handle more.
+        # Set num_ctx: tool definitions + enough room for ~10 conversation
+        # turns (~16K tokens of history). Scales with tool count so adding
+        # plugins doesn't squeeze out conversation room. Capped at the
+        # model's actual max. Override with OLLAMA_NUM_CTX.
         tool_tokens = len(ALL_TOOLS) * 200
-        min_ctx = tool_tokens + 500 + 4096 + max_tokens  # tools + system + history + output
-        practical_cap = 32768
-        num_ctx = min(max(min_ctx, practical_cap), model_max_ctx)
+        history_room = 16384  # ~10 turns of conversation
+        min_ctx = tool_tokens + 500 + history_room + max_tokens
+        num_ctx = min(min_ctx, model_max_ctx)
         num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", str(num_ctx)))
 
         print(f"\033[90mContext window: {num_ctx:,} tokens "
