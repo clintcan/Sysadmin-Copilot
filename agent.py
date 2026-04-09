@@ -180,9 +180,9 @@ def get_llm():
             for key, val in model_info.items():
                 if key.endswith(".context_length") and isinstance(val, int):
                     model_max_ctx = val
-                if key.endswith(".embedding_length") and isinstance(val, int) and not "vision" in key:
+                if key.endswith(".embedding_length") and isinstance(val, int) and "vision" not in key:
                     embedding_dim = val
-                if key.endswith(".block_count") and isinstance(val, int) and not "vision" in key:
+                if key.endswith(".block_count") and isinstance(val, int) and "vision" not in key:
                     num_layers = val
             # Parse parameter size (e.g. "9.7B" -> 9.7)
             param_str = show_data.get("details", {}).get("parameter_size", "")
@@ -215,9 +215,12 @@ def get_llm():
         if available_ram_gb and embedding_dim and num_layers:
             model_base_gb = (model_params_b or 8) * 0.6  # Q4 estimate
             ram_for_kv = (available_ram_gb * 0.6) - model_base_gb  # 60% of available, minus model
+            bytes_per_token = 2 * num_layers * embedding_dim * 2
             if ram_for_kv > 0:
-                bytes_per_token = 2 * num_layers * embedding_dim * 2
                 ram_max_ctx = int((ram_for_kv * 1024**3) / bytes_per_token)
+            else:
+                # Model barely fits in RAM — use a minimal context window
+                ram_max_ctx = 8192
 
         # Calculate num_ctx: ensure tools fit, maximize conversation room,
         # but respect both model max and RAM limits.
@@ -225,6 +228,10 @@ def get_llm():
         min_ctx = tool_tokens + 500 + 4096 + max_tokens  # absolute minimum
         effective_max = min(model_max_ctx, ram_max_ctx)
         num_ctx = max(min_ctx, effective_max)
+        if num_ctx > effective_max:
+            print(f"\033[33m  Warning: {len(ALL_TOOLS)} tools need {min_ctx:,} tokens "
+                  f"but RAM/model only allows {effective_max:,}. "
+                  f"Consider reducing plugins or adding RAM.\033[0m")
         num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", str(num_ctx)))
 
         history_tokens = num_ctx - tool_tokens - 500 - max_tokens
