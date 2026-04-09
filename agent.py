@@ -43,14 +43,19 @@ MAX_HISTORY_CHARS = None  # set in main() after LLM init
 # Known context window sizes (tokens) for common models.
 # Used when the provider doesn't report it dynamically.
 _CONTEXT_WINDOWS = {
-    # Ollama — detected dynamically via num_ctx, these are fallbacks
+    # Ollama — detected dynamically via /api/show, these are fallbacks
     "llama3.1:8b": 131072, "llama3.1:70b": 131072, "llama3.1:405b": 131072,
-    "qwen3.5": 32768, "qwen2.5:7b": 32768, "qwen2.5:14b": 32768,
+    "qwen3.5": 262144, "qwen2.5:7b": 32768, "qwen2.5:14b": 32768,
     "mistral": 32768, "mixtral": 32768, "gemma2": 8192, "phi3": 4096,
-    # OpenAI
+    # OpenAI — from developers.openai.com/docs/models (verified 2026-04)
+    "gpt-5.4": 1050000, "gpt-5.4-mini": 400000, "gpt-5.4-nano": 400000,
+    "gpt-4.1": 1047576, "gpt-4.1-mini": 1047576, "gpt-4.1-nano": 1047576,
     "gpt-4o": 128000, "gpt-4o-mini": 128000, "gpt-4-turbo": 128000,
-    "gpt-4": 8192, "gpt-3.5-turbo": 16385, "o1": 200000, "o1-mini": 128000,
-    # Anthropic
+    "gpt-4": 8192, "gpt-3.5-turbo": 16385,
+    "o4-mini": 200000,
+    "o3": 200000, "o3-mini": 200000, "o3-pro": 200000,
+    "o1": 200000, "o1-mini": 128000, "o1-pro": 200000,
+    # Anthropic — detected dynamically via /v1/models, these are fallbacks
     "claude-sonnet-4-20250514": 200000, "claude-opus-4-20250514": 200000,
     "claude-3-5-sonnet-20241022": 200000, "claude-3-haiku-20240307": 200000,
 }
