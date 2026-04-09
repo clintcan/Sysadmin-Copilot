@@ -355,6 +355,7 @@ def main():
             print()
             final_state = None
             in_response = False
+            tool_was_called = False
 
             for mode, data in agent.stream(
                 {"messages": history},
@@ -371,6 +372,7 @@ def main():
                             in_response = False
                         tool_name = getattr(chunk, "name", "tool")
                         print(f"\033[90m  [{tool_name}]\033[0m")
+                        tool_was_called = True
 
                         # In raw mode, print the tool's actual output
                         if raw_mode:
@@ -379,8 +381,10 @@ def main():
                                 print(content)
 
                     elif node == "model":
-                        # In raw mode, skip the LLM's summary — tool output was already printed
-                        if raw_mode:
+                        # In raw mode, skip the LLM summary if a tool was called.
+                        # If no tool was called, show the LLM response anyway
+                        # (e.g. the user asked a general question).
+                        if raw_mode and tool_was_called:
                             continue
                         # Stream final-answer tokens; skip tool-call decision chunks
                         if (
