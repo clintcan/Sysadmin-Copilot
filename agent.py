@@ -285,7 +285,25 @@ def get_llm():
         print(f"\033[90mUsing Anthropic ({model})\033[0m")
         max_tokens = int(os.environ.get(
             "MAX_OUTPUT_TOKENS", _MAX_OUTPUT_TOKENS_DEFAULT["anthropic"]))
+
+        # Query Anthropic API for the model's actual context window
         context_window = _CONTEXT_WINDOWS.get(model, 200000)
+        try:
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            req = urllib.request.Request(
+                f"https://api.anthropic.com/v1/models/{model}",
+                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                import json as _json
+                model_data = _json.loads(resp.read())
+            api_ctx = model_data.get("max_input_tokens")
+            if isinstance(api_ctx, int) and api_ctx > 0:
+                context_window = api_ctx
+                print(f"\033[90mContext window: {context_window:,} tokens (from API)\033[0m")
+        except Exception:
+            pass  # fall back to lookup table
+
         llm = ChatAnthropic(model=model, temperature=0,
                             max_tokens=max_tokens)
         return llm, context_window, max_tokens
