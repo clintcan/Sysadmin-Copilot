@@ -357,10 +357,15 @@ def main():
             in_response = False
             tool_was_called = False
 
+            raw_done = False
+
             for mode, data in agent.stream(
                 {"messages": history},
                 stream_mode=["messages", "values"],
             ):
+                if raw_done:
+                    break
+
                 if mode == "messages":
                     chunk, metadata = data
                     node = metadata.get("langgraph_node", "")
@@ -401,6 +406,11 @@ def main():
 
                 elif mode == "values":
                     final_state = data
+                    # In raw mode, break after the tools node finishes.
+                    # final_state now has the messages up to the tool results,
+                    # so history will be consistent for the next turn.
+                    if raw_mode and tool_was_called:
+                        raw_done = True
 
             # Always reset terminal colors after streaming.
             # Use sys.stdout.write + flush to guarantee the reset
