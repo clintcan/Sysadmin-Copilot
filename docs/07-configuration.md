@@ -49,7 +49,7 @@ For a detailed analysis, see [Chapter 5 — Model Behavior and the Safety Layer]
 | `OPENAI_BASE_URL` | — | OpenAI-compatible endpoint URL, e.g. `http://localhost:1234/v1` |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model name |
 | `MAX_OUTPUT_TOKENS` | per-provider | Maximum output tokens for LLM responses. Defaults: Ollama 4096, OpenAI 16384, Anthropic 8192. Overrides all providers when set |
-| `MAX_HISTORY_CHARS` | `100000` | Max conversation history size in chars before trimming (~25K tokens) |
+| `MAX_HISTORY_CHARS` | auto | Max conversation history in chars. Auto-calculated from model context window; override to set manually |
 
 ### Safety & Permissions
 

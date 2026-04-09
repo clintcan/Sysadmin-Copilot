@@ -263,7 +263,7 @@ The safety and audit wrappers are applied automatically — no changes needed in
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model name |
 | `ANTHROPIC_API_KEY` | — | Anthropic API key |
 | `MAX_OUTPUT_TOKENS` | per-provider | Maximum output tokens. Defaults: Ollama 4096, OpenAI 16384, Anthropic 8192. Overrides all providers when set |
-| `MAX_HISTORY_CHARS` | `100000` | Max conversation history size in chars before trimming (~25K tokens) |
+| `MAX_HISTORY_CHARS` | auto | Max conversation history in chars. Auto-calculated from model context window; override to set manually |
 
 ### Safety & Permissions
 
