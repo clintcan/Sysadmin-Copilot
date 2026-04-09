@@ -162,17 +162,37 @@ def get_llm():
         max_tokens = int(os.environ.get(
             "MAX_OUTPUT_TOKENS", _MAX_OUTPUT_TOKENS_DEFAULT["ollama"]))
 
-        # Auto-size context window from loaded tools
+        # Query the model's actual context window from Ollama
+        model_max_ctx = None
+        try:
+            import json as _json
+            req = urllib.request.Request(
+                f"{base_url}/api/show",
+                data=_json.dumps({"name": model}).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                model_info = _json.loads(resp.read()).get("model_info", {})
+            for key, val in model_info.items():
+                if key.endswith(".context_length") and isinstance(val, int):
+                    model_max_ctx = val
+                    break
+        except Exception:
+            pass  # fall back to lookup table or conservative estimate
+
+        if model_max_ctx is None:
+            model_max_ctx = _CONTEXT_WINDOWS.get(model, 8192)
+
+        # Use the model's full context, but ensure tool definitions fit.
+        # Cap at model's max; allow env var override.
         tool_tokens = len(ALL_TOOLS) * 200
-        system_tokens = 500
-        history_room = 4096
-        min_ctx = tool_tokens + system_tokens + history_room + max_tokens
-        num_ctx = max(8192, ((min_ctx + 1023) // 1024) * 1024)
+        min_ctx = tool_tokens + 500 + 4096 + max_tokens  # tools + system + history + output
+        num_ctx = max(min_ctx, model_max_ctx)
         num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", str(num_ctx)))
 
-        if num_ctx > 8192:
-            print(f"\033[90mContext window: {num_ctx} tokens "
-                  f"({len(ALL_TOOLS)} tools need ~{tool_tokens} tokens)\033[0m")
+        print(f"\033[90mContext window: {num_ctx:,} tokens "
+              f"(model max: {model_max_ctx:,}, "
+              f"{len(ALL_TOOLS)} tools need ~{tool_tokens:,})\033[0m")
 
         llm = ChatOllama(model=model, base_url=base_url, temperature=0,
                          num_predict=max_tokens, num_ctx=num_ctx)
