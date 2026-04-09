@@ -91,6 +91,7 @@ HELP_TEXT = """
   tools              List all available agent tools
   audit              Show the audit log for this session
   audit last [N]     Show the last N past session(s) (default 1)
+  raw                Toggle raw output mode (show tool output without LLM summary)
   new                Start a fresh conversation (clear history)
   clear              Clear the screen
   quit / exit        Exit the copilot
@@ -276,6 +277,7 @@ def main():
     print()
 
     history = []  # accumulates messages across turns for multi-step investigations
+    raw_mode = False  # when True, print raw tool output and skip LLM summary
 
     while True:
         try:
@@ -291,7 +293,8 @@ def main():
                     pass
             sys.stdout.write("\033[0m")
             sys.stdout.flush()
-            user_input = input(current_directory+" ❯ ").strip()
+            prompt_prefix = "\033[33m[RAW]\033[0m " if raw_mode else ""
+            user_input = input(prompt_prefix + current_directory + " ❯ ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n\033[90mGoodbye!\033[0m")
             break
@@ -320,6 +323,11 @@ def main():
                 audit.show_last(count)
             else:
                 audit.show()
+            continue
+        elif cmd == "raw":
+            raw_mode = not raw_mode
+            state = "ON" if raw_mode else "OFF"
+            print(f"\033[90mRaw output mode: {state}\033[0m\n")
             continue
         elif cmd == "new":
             history = []
@@ -357,14 +365,23 @@ def main():
                     node = metadata.get("langgraph_node", "")
 
                     if node == "tools":
-                        # A tool just finished — show its name as a progress indicator
+                        # A tool just finished — show its name
                         if in_response:
                             print("\033[0m", end="")
                             in_response = False
                         tool_name = getattr(chunk, "name", "tool")
                         print(f"\033[90m  [{tool_name}]\033[0m")
 
+                        # In raw mode, print the tool's actual output
+                        if raw_mode:
+                            content = chunk.content if hasattr(chunk, "content") else ""
+                            if isinstance(content, str) and content:
+                                print(content)
+
                     elif node == "model":
+                        # In raw mode, skip the LLM's summary — tool output was already printed
+                        if raw_mode:
+                            continue
                         # Stream final-answer tokens; skip tool-call decision chunks
                         if (
                             isinstance(chunk.content, str)
