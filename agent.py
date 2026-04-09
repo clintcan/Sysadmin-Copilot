@@ -357,15 +357,12 @@ def main():
             in_response = False
             tool_was_called = False
 
-            raw_done = False
-
-            for mode, data in agent.stream(
+            stream = agent.stream(
                 {"messages": history},
                 stream_mode=["messages", "values"],
-            ):
-                if raw_done:
-                    break
+            )
 
+            for mode, data in stream:
                 if mode == "messages":
                     chunk, metadata = data
                     node = metadata.get("langgraph_node", "")
@@ -406,11 +403,20 @@ def main():
 
                 elif mode == "values":
                     final_state = data
-                    # In raw mode, break after the tools node finishes.
-                    # final_state now has the messages up to the tool results,
-                    # so history will be consistent for the next turn.
+                    # In raw mode, drain the rest of the stream in a background
+                    # thread so the prompt returns immediately. Without this,
+                    # closing the generator blocks while the LLM finishes
+                    # generating its unused summary.
                     if raw_mode and tool_was_called:
-                        raw_done = True
+                        import threading
+                        def _drain(s):
+                            try:
+                                for _ in s:
+                                    pass
+                            except Exception:
+                                pass
+                        threading.Thread(target=_drain, args=(stream,), daemon=True).start()
+                        break
 
             # Always reset terminal colors after streaming.
             # Use sys.stdout.write + flush to guarantee the reset
