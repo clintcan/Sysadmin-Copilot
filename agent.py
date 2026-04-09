@@ -162,40 +162,76 @@ def get_llm():
         max_tokens = int(os.environ.get(
             "MAX_OUTPUT_TOKENS", _MAX_OUTPUT_TOKENS_DEFAULT["ollama"]))
 
-        # Query the model's actual context window from Ollama
+        # Query model info from Ollama: context window, architecture
+        import json as _json
         model_max_ctx = None
+        model_params_b = None
+        embedding_dim = None
+        num_layers = None
         try:
-            import json as _json
             req = urllib.request.Request(
                 f"{base_url}/api/show",
                 data=_json.dumps({"name": model}).encode(),
                 headers={"Content-Type": "application/json"},
             )
             with urllib.request.urlopen(req, timeout=5) as resp:
-                model_info = _json.loads(resp.read()).get("model_info", {})
+                show_data = _json.loads(resp.read())
+            model_info = show_data.get("model_info", {})
             for key, val in model_info.items():
                 if key.endswith(".context_length") and isinstance(val, int):
                     model_max_ctx = val
-                    break
+                if key.endswith(".embedding_length") and isinstance(val, int) and not "vision" in key:
+                    embedding_dim = val
+                if key.endswith(".block_count") and isinstance(val, int) and not "vision" in key:
+                    num_layers = val
+            # Parse parameter size (e.g. "9.7B" -> 9.7)
+            param_str = show_data.get("details", {}).get("parameter_size", "")
+            if param_str.endswith("B"):
+                try:
+                    model_params_b = float(param_str[:-1])
+                except ValueError:
+                    pass
         except Exception:
-            pass  # fall back to lookup table or conservative estimate
+            pass
 
         if model_max_ctx is None:
             model_max_ctx = _CONTEXT_WINDOWS.get(model, 8192)
 
-        # Set num_ctx: tool definitions + enough room for ~10 conversation
-        # turns (~16K tokens of history). Scales with tool count so adding
-        # plugins doesn't squeeze out conversation room. Capped at the
-        # model's actual max. Override with OLLAMA_NUM_CTX.
+        # Estimate how much context fits in available RAM.
+        # KV cache memory per token ≈ 2 * num_layers * embedding_dim * 2 bytes (FP16 KV)
+        #   (2 for key+value, 2 bytes for FP16)
+        # Model base memory ≈ params_B * 0.6 GB for Q4 quantization
+        available_ram_gb = None
+        try:
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    if line.startswith("MemAvailable:"):
+                        available_ram_gb = int(line.split()[1]) / (1024 * 1024)
+                        break
+        except Exception:
+            pass
+
+        ram_max_ctx = model_max_ctx  # default: no RAM constraint
+        if available_ram_gb and embedding_dim and num_layers:
+            model_base_gb = (model_params_b or 8) * 0.6  # Q4 estimate
+            ram_for_kv = (available_ram_gb * 0.6) - model_base_gb  # 60% of available, minus model
+            if ram_for_kv > 0:
+                bytes_per_token = 2 * num_layers * embedding_dim * 2
+                ram_max_ctx = int((ram_for_kv * 1024**3) / bytes_per_token)
+
+        # Calculate num_ctx: ensure tools fit, maximize conversation room,
+        # but respect both model max and RAM limits.
         tool_tokens = len(ALL_TOOLS) * 200
-        history_room = 16384  # ~10 turns of conversation
-        min_ctx = tool_tokens + 500 + history_room + max_tokens
-        num_ctx = min(min_ctx, model_max_ctx)
+        min_ctx = tool_tokens + 500 + 4096 + max_tokens  # absolute minimum
+        effective_max = min(model_max_ctx, ram_max_ctx)
+        num_ctx = max(min_ctx, effective_max)
         num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", str(num_ctx)))
 
+        history_tokens = num_ctx - tool_tokens - 500 - max_tokens
         print(f"\033[90mContext window: {num_ctx:,} tokens "
-              f"(model supports {model_max_ctx:,}, "
-              f"{len(ALL_TOOLS)} tools need ~{tool_tokens:,})\033[0m")
+              f"(model max: {model_max_ctx:,}, "
+              f"RAM allows: {ram_max_ctx:,}, "
+              f"history room: ~{history_tokens:,})\033[0m")
 
         llm = ChatOllama(model=model, base_url=base_url, temperature=0,
                          num_predict=max_tokens, num_ctx=num_ctx)
