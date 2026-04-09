@@ -36,10 +36,37 @@ from safety import SafetyLayer
 import safety as safety_module
 from audit import AuditLogger
 
-# History is trimmed before each agent call if it exceeds this character count.
-# Roughly 25k tokens at 4 chars/token — well under all supported model limits.
-# Override via MAX_HISTORY_CHARS env var if you use a model with a smaller window.
-MAX_HISTORY_CHARS = int(os.environ.get("MAX_HISTORY_CHARS", "100000"))
+# History limit is calculated dynamically from the model's context window
+# (see _calculate_max_history_chars). Override via MAX_HISTORY_CHARS env var.
+MAX_HISTORY_CHARS = None  # set in main() after LLM init
+
+# Known context window sizes (tokens) for common models.
+# Used when the provider doesn't report it dynamically.
+_CONTEXT_WINDOWS = {
+    # Ollama — detected dynamically via num_ctx, these are fallbacks
+    "llama3.1:8b": 131072, "llama3.1:70b": 131072, "llama3.1:405b": 131072,
+    "qwen3.5": 32768, "qwen2.5:7b": 32768, "qwen2.5:14b": 32768,
+    "mistral": 32768, "mixtral": 32768, "gemma2": 8192, "phi3": 4096,
+    # OpenAI
+    "gpt-4o": 128000, "gpt-4o-mini": 128000, "gpt-4-turbo": 128000,
+    "gpt-4": 8192, "gpt-3.5-turbo": 16385, "o1": 200000, "o1-mini": 128000,
+    # Anthropic
+    "claude-sonnet-4-20250514": 200000, "claude-opus-4-20250514": 200000,
+    "claude-3-5-sonnet-20241022": 200000, "claude-3-haiku-20240307": 200000,
+}
+
+
+def _calculate_max_history_chars(context_window, output_tokens):
+    """Calculate max history chars from context window size.
+
+    Budget: context_window - tool_definitions - system_prompt - output_tokens
+    Convert remaining tokens to chars (* 4 chars/token estimate).
+    """
+    tool_tokens = len(ALL_TOOLS) * 200
+    system_tokens = 500
+    available = context_window - tool_tokens - system_tokens - output_tokens
+    # At least 4K tokens of history room, convert to chars
+    return max(4096 * 4, available * 4)
 
 # Maximum output tokens per provider. Ollama defaults are often too low (2048),
 # causing responses to cut off mid-sentence when summarizing large tool output.
@@ -101,7 +128,11 @@ HELP_TEXT = """
 # ─── LLM Setup ────────────────────────────────────────────────────────────────
 
 def get_llm():
-    """Initialize the LLM based on environment configuration."""
+    """Initialize the LLM based on environment configuration.
+
+    Returns (llm, context_window_tokens, output_tokens) so the caller
+    can calculate the appropriate MAX_HISTORY_CHARS.
+    """
     provider = os.environ.get("LLM_PROVIDER", "ollama").lower()
 
     if provider == "ollama":
@@ -128,13 +159,10 @@ def get_llm():
             print("Make sure Ollama is running: ollama serve")
             sys.exit(1)
 
-        # Estimate context needed: tool definitions + system prompt + history room.
-        # Each tool's name + docstring + schema averages ~200 tokens.
-        # Add room for system prompt (~500 tokens) and conversation history.
         max_tokens = int(os.environ.get(
             "MAX_OUTPUT_TOKENS", _MAX_OUTPUT_TOKENS_DEFAULT["ollama"]))
 
-        # Estimate context needed: tool definitions + system prompt + history room.
+        # Auto-size context window from loaded tools
         tool_tokens = len(ALL_TOOLS) * 200
         system_tokens = 500
         history_room = 4096
@@ -146,8 +174,9 @@ def get_llm():
             print(f"\033[90mContext window: {num_ctx} tokens "
                   f"({len(ALL_TOOLS)} tools need ~{tool_tokens} tokens)\033[0m")
 
-        return ChatOllama(model=model, base_url=base_url, temperature=0,
+        llm = ChatOllama(model=model, base_url=base_url, temperature=0,
                          num_predict=max_tokens, num_ctx=num_ctx)
+        return llm, num_ctx, max_tokens
 
     elif provider == "openai":
         try:
@@ -169,8 +198,10 @@ def get_llm():
             print(f"\033[90mUsing OpenAI ({model})\033[0m")
         max_tokens = int(os.environ.get(
             "MAX_OUTPUT_TOKENS", _MAX_OUTPUT_TOKENS_DEFAULT["openai"]))
-        return ChatOpenAI(model=model, base_url=base_url, temperature=0,
+        context_window = _CONTEXT_WINDOWS.get(model, 128000)
+        llm = ChatOpenAI(model=model, base_url=base_url, temperature=0,
                          max_tokens=max_tokens)
+        return llm, context_window, max_tokens
 
     elif provider == "anthropic":
         try:
@@ -188,8 +219,10 @@ def get_llm():
         print(f"\033[90mUsing Anthropic ({model})\033[0m")
         max_tokens = int(os.environ.get(
             "MAX_OUTPUT_TOKENS", _MAX_OUTPUT_TOKENS_DEFAULT["anthropic"]))
-        return ChatAnthropic(model=model, temperature=0,
+        context_window = _CONTEXT_WINDOWS.get(model, 200000)
+        llm = ChatAnthropic(model=model, temperature=0,
                             max_tokens=max_tokens)
+        return llm, context_window, max_tokens
 
     else:
         print(f"\033[31mUnknown LLM_PROVIDER: {provider}\033[0m")
@@ -256,11 +289,21 @@ def main():
     safety = SafetyLayer()
 
     # Initialize LLM and agent
+    global MAX_HISTORY_CHARS
     try:
-        llm = get_llm()
+        llm, context_window, output_tokens = get_llm()
     except Exception as e:
         print(f"\033[31mFailed to initialize LLM: {e}\033[0m")
         sys.exit(1)
+
+    # Calculate history limit from model's context window, or use env override
+    env_override = os.environ.get("MAX_HISTORY_CHARS")
+    if env_override:
+        MAX_HISTORY_CHARS = int(env_override)
+    else:
+        MAX_HISTORY_CHARS = _calculate_max_history_chars(context_window, output_tokens)
+    print(f"\033[90mMax history: {MAX_HISTORY_CHARS:,} chars "
+          f"(~{MAX_HISTORY_CHARS // 4:,} tokens from {context_window:,} context)\033[0m")
 
     # Merge any write-tool declarations from plugins into the safety layer
     safety_module.WRITE_TOOLS |= EXTRA_WRITE_TOOLS
