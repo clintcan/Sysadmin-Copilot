@@ -133,6 +133,9 @@ def get_llm():
     Returns (llm, context_window_tokens, output_tokens) so the caller
     can calculate the appropriate MAX_HISTORY_CHARS.
     """
+    import json as _json
+    import urllib.request
+
     provider = os.environ.get("LLM_PROVIDER", "ollama").lower()
 
     if provider == "ollama":
@@ -152,7 +155,6 @@ def get_llm():
         print(f"\033[90mUsing Ollama ({model}) at {base_url}\033[0m")
 
         try:
-            import urllib.request
             urllib.request.urlopen(f"{base_url}/api/tags", timeout=3)
         except Exception:
             print(f"\033[31mError: Cannot connect to Ollama at {base_url}\033[0m")
@@ -163,7 +165,6 @@ def get_llm():
             "MAX_OUTPUT_TOKENS", _MAX_OUTPUT_TOKENS_DEFAULT["ollama"]))
 
         # Query model info from Ollama: context window, architecture
-        import json as _json
         model_max_ctx = None
         model_params_b = None
         embedding_dim = None
@@ -295,7 +296,6 @@ def get_llm():
                 headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
             )
             with urllib.request.urlopen(req, timeout=5) as resp:
-                import json as _json
                 model_data = _json.loads(resp.read())
             api_ctx = model_data.get("max_input_tokens")
             if isinstance(api_ctx, int) and api_ctx > 0:
