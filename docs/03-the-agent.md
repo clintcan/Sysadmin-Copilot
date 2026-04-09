@@ -301,7 +301,7 @@ This fails fast with a useful message instead of letting the first `agent.stream
 
 ## Built-in Commands
 
-Built-in commands are intercepted before the input is sent to the agent (`agent.py:303–330`). The pattern is a simple `if/elif` chain on the lowercased input:
+Built-in commands are intercepted before the input is sent to the agent (`agent.py:306–337`). The pattern is a simple `if/elif` chain on the lowercased input:
 
 ```python
 cmd = user_input.lower()
@@ -317,19 +317,27 @@ elif cmd == "tools":
     print()
     continue
 elif cmd == "audit" or cmd.startswith("audit "):
-    parts = cmd.split()
-    if len(parts) >= 2 and parts[1] == "last":
-        count = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 1
-        audit.show_last(count)
-    else:
-        audit.show()
-    continue
+    ...
+elif cmd == "raw":
+    raw_mode = not raw_mode
+    ...
 elif cmd == "new":
     history = []
     ...
 ```
 
 Using `continue` returns to the `while True` loop's top without touching the agent. This means built-in commands are never sent to the LLM, and they don't affect conversation history.
+
+### Raw Output Mode
+
+The `raw` command toggles `raw_mode` — a boolean flag that changes how tool results are displayed in the streaming loop. When enabled:
+
+- The LLM still reasons about the question and decides which tool(s) to call
+- Tool output is printed directly to the terminal without LLM summarization
+- The prompt shows a `[RAW]` prefix as a visual indicator
+- If the LLM answers without calling a tool (e.g. a general knowledge question), the response is shown normally
+
+This is useful when you want exact numbers, full log entries, or unfiltered API responses without the LLM paraphrasing or omitting details.
 
 ---
 

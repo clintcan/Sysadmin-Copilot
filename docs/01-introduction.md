@@ -90,9 +90,10 @@ Beyond natural-language questions, the REPL has a few built-in commands:
 | Command | What it does |
 |---------|-------------|
 | `help` | Show the command list |
-| `tools` | List all 27 available tools with descriptions |
+| `tools` | List all available tools with descriptions |
 | `audit` | Show the audit log for the current session |
 | `audit last N` | Show tool calls from the last N past sessions |
+| `raw` | Toggle raw output mode (tool output without LLM summary) |
 | `new` | Reset conversation history (start fresh) |
 | `clear` | Clear the terminal screen |
 | `quit` / `exit` | Exit the copilot |
