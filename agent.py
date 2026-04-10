@@ -204,10 +204,16 @@ def get_llm():
         if model_max_ctx is None:
             model_max_ctx = _CONTEXT_WINDOWS.get(model, 8192)
 
-        # Estimate how much RAM is available for the KV cache.
-        # Use total system RAM as the basis — Ollama reclaims Linux page
-        # cache when loading models, so current free/available is misleading.
-        # Reserve 2 GB for OS + apps, subtract model weight, rest is for KV.
+        # Calculate num_ctx: balance context size vs. speed.
+        #
+        # Constraints:
+        #   1. Must fit tools + system prompt + output tokens (minimum)
+        #   2. KV cache must fit in RAM (max 40% of total RAM for KV)
+        #   3. Don't over-allocate — large num_ctx is slow even if RAM allows it
+        #      (every token in the prompt is processed on each turn)
+        #   4. Never exceed model's max context
+        #
+        # Strategy: tools + 8K history room (~5 turns), capped by RAM and model max.
         total_ram_gb = None
         try:
             with open("/proc/meminfo") as f:
@@ -218,35 +224,37 @@ def get_llm():
         except Exception:
             pass
 
-        ram_max_ctx = model_max_ctx  # default: no RAM constraint
+        tool_tokens = len(ALL_TOOLS) * 200
+        target_ctx = tool_tokens + 500 + 8192 + max_tokens  # tools + system + ~5 turns + output
+
+        # RAM cap: limit KV cache to 40% of total RAM (leave room for model + OS)
+        ram_max_ctx = model_max_ctx
         if total_ram_gb is not None and embedding_dim and num_layers:
-            os_reserve_gb = 2.0  # leave for OS + apps
-            model_base_gb = (model_params_b or 8) * 0.55  # Q4_K_M estimate
-            ram_for_kv = total_ram_gb - os_reserve_gb - model_base_gb
+            kv_budget_gb = total_ram_gb * 0.4
             bytes_per_token = 2 * num_layers * embedding_dim * 2
-            if ram_for_kv > 0:
-                ram_max_ctx = int((ram_for_kv * 1024**3) / bytes_per_token)
+            if kv_budget_gb > 0:
+                ram_max_ctx = int((kv_budget_gb * 1024**3) / bytes_per_token)
             else:
-                # Model barely fits in RAM — use a minimal context window
                 ram_max_ctx = 4096
 
-        # Calculate num_ctx: never exceed what RAM allows — exceeding
-        # causes Ollama to swap to disk and hang. If tools need more
-        # than RAM allows, cap at RAM and warn.
-        tool_tokens = len(ALL_TOOLS) * 200
-        min_ctx = tool_tokens + 500 + 4096 + max_tokens  # ideal minimum
-        num_ctx = min(model_max_ctx, ram_max_ctx)  # never exceed RAM or model max
-        if min_ctx > num_ctx:
-            print(f"\033[33m  Warning: {len(ALL_TOOLS)} tools ideally need ~{min_ctx:,} tokens "
-                  f"but RAM only allows {num_ctx:,}. Capping to avoid hanging.\n"
-                  f"  Consider reducing plugins (unset unused API keys) or adding RAM.\033[0m")
+        num_ctx = min(target_ctx, model_max_ctx, ram_max_ctx)
+        # Ensure at least the minimum fits (tools + system + output, no history)
+        min_ctx = tool_tokens + 500 + max_tokens
+        if num_ctx < min_ctx:
+            num_ctx = min(min_ctx, model_max_ctx)  # force tools to fit, up to model max
+            if num_ctx > ram_max_ctx:
+                print(f"\033[33m  Warning: {len(ALL_TOOLS)} tools need ~{min_ctx:,} tokens "
+                      f"but RAM safely allows {ram_max_ctx:,}. May be slow.\n"
+                      f"  Consider reducing plugins (unset unused API keys).\033[0m")
+
         num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", str(num_ctx)))
 
         history_tokens = max(0, num_ctx - tool_tokens - 500 - max_tokens)
+        kv_gb = (num_ctx * 2 * (num_layers or 32) * (embedding_dim or 4096) * 2) / (1024**3)
         print(f"\033[90mContext window: {num_ctx:,} tokens "
               f"(model max: {model_max_ctx:,}, "
-              f"RAM allows: {ram_max_ctx:,}, "
-              f"history room: ~{history_tokens:,})\033[0m")
+              f"KV cache: {kv_gb:.1f} GB, "
+              f"history: ~{history_tokens:,} tokens)\033[0m")
 
         llm = ChatOllama(model=model, base_url=base_url, temperature=0,
                          num_predict=max_tokens, num_ctx=num_ctx)
