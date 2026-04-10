@@ -73,20 +73,28 @@ def _check_error(result):
     return None
 
 
+def _str_field(entry, key, default=""):
+    """Safely get a string field from an entry. Handles list values."""
+    val = entry.get(key, default)
+    if val is None:
+        return default
+    if isinstance(val, list):
+        return ", ".join(str(v) for v in val if v) or default
+    return str(val) if not isinstance(val, str) else val
+
+
 def _format_entry(e):
     """Format a single breach entry."""
     lines = []
-    email = e.get("email", "")
-    username = e.get("username", "")
-    name = e.get("name", "")
-    password = e.get("password", "")
-    hashed_pw = e.get("hashed_password", "")
-    ip = e.get("ip_address", "")
-    phone = e.get("phone", "")
-    address = e.get("address", "")
-    source = e.get("obtained_from", "Unknown source")
-    if isinstance(source, list):
-        source = ", ".join(str(s) for s in source)
+    email = _str_field(e, "email")
+    username = _str_field(e, "username")
+    name = _str_field(e, "name")
+    password = _str_field(e, "password")
+    hashed_pw = _str_field(e, "hashed_password")
+    ip = _str_field(e, "ip_address")
+    phone = _str_field(e, "phone")
+    address = _str_field(e, "address")
+    source = _str_field(e, "obtained_from", "Unknown source")
 
     lines.append(f"  [{source}]")
 
@@ -213,12 +221,12 @@ def dehashed_domain(domain: str) -> str:
     # Group by email
     by_email = {}
     for e in entries:
-        email = e.get("email", "(no email)")
+        email = _str_field(e, "email", "(no email)")
         if email not in by_email:
             by_email[email] = []
         by_email[email].append(e)
 
-    pw_count = sum(1 for e in entries if e.get("password") or e.get("hashed_password"))
+    pw_count = sum(1 for e in entries if _str_field(e, "password") or _str_field(e, "hashed_password"))
 
     lines = [f"DeHashed domain report: {domain}\n"]
     lines.append(f"  Total records:    {total}")
@@ -230,8 +238,8 @@ def dehashed_domain(domain: str) -> str:
         sources = list({
             str(e.get("obtained_from", "?")) for e in email_entries
         })
-        has_pw = any(e.get("password") for e in email_entries)
-        has_hash = any(e.get("hashed_password") for e in email_entries)
+        has_pw = any(_str_field(e, "password") for e in email_entries)
+        has_hash = any(_str_field(e, "hashed_password") for e in email_entries)
 
         lines.append(f"  {email}")
         lines.append(f"    Breaches ({len(email_entries)}): {', '.join(sources[:5])}")
