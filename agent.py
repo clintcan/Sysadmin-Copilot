@@ -238,14 +238,12 @@ def get_llm():
                 ram_max_ctx = 4096
 
         num_ctx = min(target_ctx, model_max_ctx, ram_max_ctx)
-        # Ensure at least the minimum fits (tools + system + output, no history)
+        # Warn if tools don't fit — but NEVER exceed ram_max_ctx
         min_ctx = tool_tokens + 500 + max_tokens
         if num_ctx < min_ctx:
-            num_ctx = min(min_ctx, model_max_ctx)  # force tools to fit, up to model max
-            if num_ctx > ram_max_ctx:
-                print(f"\033[33m  Warning: {len(ALL_TOOLS)} tools need ~{min_ctx:,} tokens "
-                      f"but RAM safely allows {ram_max_ctx:,}. May be slow.\n"
-                      f"  Consider reducing plugins (unset unused API keys).\033[0m")
+            print(f"\033[33m  Warning: {len(ALL_TOOLS)} tools need ~{min_ctx:,} tokens "
+                  f"but context is {num_ctx:,}. Some tools may not work.\n"
+                  f"  Reduce plugins (unset unused API keys) or add RAM.\033[0m")
 
         num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", str(num_ctx)))
 
