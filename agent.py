@@ -203,10 +203,6 @@ def get_llm():
         if model_max_ctx is None:
             model_max_ctx = _CONTEXT_WINDOWS.get(model, 8192)
 
-        # Estimate how much context fits in available RAM.
-        # KV cache memory per token ≈ 2 * num_layers * embedding_dim * 2 bytes (FP16 KV)
-        #   (2 for key+value, 2 bytes for FP16)
-        # Model base memory ≈ params_B * 0.6 GB for Q4 quantization
         # Estimate how much RAM is available for the KV cache.
         # Use total system RAM as the basis — Ollama reclaims Linux page
         # cache when loading models, so current free/available is misleading.
@@ -238,15 +234,14 @@ def get_llm():
         # than RAM allows, cap at RAM and warn.
         tool_tokens = len(ALL_TOOLS) * 200
         min_ctx = tool_tokens + 500 + 4096 + max_tokens  # ideal minimum
-        effective_max = min(model_max_ctx, ram_max_ctx)
-        num_ctx = min(min_ctx, effective_max) if min_ctx > effective_max else effective_max
-        if min_ctx > effective_max:
+        num_ctx = min(model_max_ctx, ram_max_ctx)  # never exceed RAM or model max
+        if min_ctx > num_ctx:
             print(f"\033[33m  Warning: {len(ALL_TOOLS)} tools ideally need ~{min_ctx:,} tokens "
-                  f"but RAM only allows {effective_max:,}. Capping to avoid hanging.\n"
+                  f"but RAM only allows {num_ctx:,}. Capping to avoid hanging.\n"
                   f"  Consider reducing plugins (unset unused API keys) or adding RAM.\033[0m")
         num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", str(num_ctx)))
 
-        history_tokens = num_ctx - tool_tokens - 500 - max_tokens
+        history_tokens = max(0, num_ctx - tool_tokens - 500 - max_tokens)
         print(f"\033[90mContext window: {num_ctx:,} tokens "
               f"(model max: {model_max_ctx:,}, "
               f"RAM allows: {ram_max_ctx:,}, "
