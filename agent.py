@@ -70,8 +70,9 @@ def _calculate_max_history_chars(context_window, output_tokens):
     tool_tokens = len(ALL_TOOLS) * 200
     system_tokens = 500
     available = context_window - tool_tokens - system_tokens - output_tokens
-    # At least 4K tokens of history room, convert to chars
-    return max(4096 * 4, available * 4)
+    # Floor: enough for ~2 turns (one question + one tool result + one answer)
+    min_history = min(2048, context_window // 4) * 4
+    return max(min_history, available * 4)
 
 # Maximum output tokens per provider. Ollama defaults are often too low (2048),
 # causing responses to cut off mid-sentence when summarizing large tool output.
