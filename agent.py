@@ -46,7 +46,10 @@ _CONTEXT_WINDOWS = {
     # Ollama — detected dynamically via /api/show, these are fallbacks
     "llama3.1:8b": 131072, "llama3.1:70b": 131072, "llama3.1:405b": 131072,
     "qwen3.5": 262144, "qwen2.5:7b": 32768, "qwen2.5:14b": 32768,
-    "mistral": 32768, "mixtral": 32768, "gemma2": 8192, "phi3": 4096,
+    "mistral": 32768, "mixtral": 32768, "phi3": 4096,
+    "gemma2": 8192,
+    "gemma4": 256000, "gemma4:e2b": 128000, "gemma4:e4b": 128000,
+    "gemma4:26b-a4b": 256000, "gemma4:31b": 256000,
     # OpenAI — from developers.openai.com/docs/models (verified 2026-04)
     "gpt-5.4": 1050000, "gpt-5.4-mini": 400000, "gpt-5.4-nano": 400000,
     "gpt-4.1": 1047576, "gpt-4.1-mini": 1047576, "gpt-4.1-nano": 1047576,
