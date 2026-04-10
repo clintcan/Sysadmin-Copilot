@@ -94,7 +94,7 @@ def _format_entry(e):
     ip = _str_field(e, "ip_address")
     phone = _str_field(e, "phone")
     address = _str_field(e, "address")
-    source = _str_field(e, "obtained_from", "Unknown source")
+    source = _str_field(e, "database_name", _str_field(e, "obtained_from", "Unknown source"))
 
     lines.append(f"  [{source}]")
 
@@ -236,7 +236,8 @@ def dehashed_domain(domain: str) -> str:
     sorted_emails = sorted(by_email.items(), key=lambda x: len(x[1]), reverse=True)
     for email, email_entries in sorted_emails[:30]:
         sources = list({
-            str(e.get("obtained_from", "?")) for e in email_entries
+            _str_field(e, "database_name", _str_field(e, "obtained_from", "?"))
+            for e in email_entries
         })
         has_pw = any(_str_field(e, "password") for e in email_entries)
         has_hash = any(_str_field(e, "hashed_password") for e in email_entries)
