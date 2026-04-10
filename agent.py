@@ -207,37 +207,43 @@ def get_llm():
         # KV cache memory per token ≈ 2 * num_layers * embedding_dim * 2 bytes (FP16 KV)
         #   (2 for key+value, 2 bytes for FP16)
         # Model base memory ≈ params_B * 0.6 GB for Q4 quantization
-        available_ram_gb = None
+        # Estimate how much RAM is available for the KV cache.
+        # Use total system RAM as the basis — Ollama reclaims Linux page
+        # cache when loading models, so current free/available is misleading.
+        # Reserve 2 GB for OS + apps, subtract model weight, rest is for KV.
+        total_ram_gb = None
         try:
             with open("/proc/meminfo") as f:
-                for line in f:
-                    if line.startswith("MemAvailable:"):
-                        available_ram_gb = int(line.split()[1]) / (1024 * 1024)
+                for mem_line in f:
+                    if mem_line.startswith("MemTotal:"):
+                        total_ram_gb = int(mem_line.split()[1]) / (1024 * 1024)
                         break
         except Exception:
             pass
 
         ram_max_ctx = model_max_ctx  # default: no RAM constraint
-        if available_ram_gb and embedding_dim and num_layers:
-            model_base_gb = (model_params_b or 8) * 0.6  # Q4 estimate
-            ram_for_kv = (available_ram_gb * 0.6) - model_base_gb  # 60% of available, minus model
+        if total_ram_gb is not None and embedding_dim and num_layers:
+            os_reserve_gb = 2.0  # leave for OS + apps
+            model_base_gb = (model_params_b or 8) * 0.55  # Q4_K_M estimate
+            ram_for_kv = total_ram_gb - os_reserve_gb - model_base_gb
             bytes_per_token = 2 * num_layers * embedding_dim * 2
             if ram_for_kv > 0:
                 ram_max_ctx = int((ram_for_kv * 1024**3) / bytes_per_token)
             else:
                 # Model barely fits in RAM — use a minimal context window
-                ram_max_ctx = 8192
+                ram_max_ctx = 4096
 
-        # Calculate num_ctx: ensure tools fit, maximize conversation room,
-        # but respect both model max and RAM limits.
+        # Calculate num_ctx: never exceed what RAM allows — exceeding
+        # causes Ollama to swap to disk and hang. If tools need more
+        # than RAM allows, cap at RAM and warn.
         tool_tokens = len(ALL_TOOLS) * 200
-        min_ctx = tool_tokens + 500 + 4096 + max_tokens  # absolute minimum
+        min_ctx = tool_tokens + 500 + 4096 + max_tokens  # ideal minimum
         effective_max = min(model_max_ctx, ram_max_ctx)
-        num_ctx = max(min_ctx, effective_max)
-        if num_ctx > effective_max:
-            print(f"\033[33m  Warning: {len(ALL_TOOLS)} tools need {min_ctx:,} tokens "
-                  f"but RAM/model only allows {effective_max:,}. "
-                  f"Consider reducing plugins or adding RAM.\033[0m")
+        num_ctx = min(min_ctx, effective_max) if min_ctx > effective_max else effective_max
+        if min_ctx > effective_max:
+            print(f"\033[33m  Warning: {len(ALL_TOOLS)} tools ideally need ~{min_ctx:,} tokens "
+                  f"but RAM only allows {effective_max:,}. Capping to avoid hanging.\n"
+                  f"  Consider reducing plugins (unset unused API keys) or adding RAM.\033[0m")
         num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", str(num_ctx)))
 
         history_tokens = num_ctx - tool_tokens - 500 - max_tokens
