@@ -71,7 +71,6 @@ Plugins are lazy-loaded: only plugins whose required API keys are set will load 
 | `ABUSEIPDB_API_KEY` | Yes (1K/day) | `abuseipdb.py` | AbuseIPDB — IP reputation scoring and blacklists |
 | `RANSOMWARE_LIVE_API_KEY` | Paid | `ransomware_tracker.py` | ransomware.live PRO — ransomware group/victim tracking |
 | `LEAKCHECK_API_KEY` | Paid | `leakcheck.py` | LeakCheck Pro — detailed breach search by email, username, domain, phone |
-| `DEHASHED_EMAIL` | Paid | `dehashed.py` | DeHashed account email (used with DEHASHED_API_KEY for Basic auth) |
 | `DEHASHED_API_KEY` | Paid | `dehashed.py` | DeHashed — breach search with actual leaked passwords/hashes (~$0.03/query) |
 
 `breach_check.py` and `leakcheck.py` always load because some of their tools work without a key (HIBP public endpoints and LeakCheck public API).
