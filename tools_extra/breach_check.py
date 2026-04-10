@@ -237,7 +237,11 @@ def list_breached_emails(domain: str) -> str:
     total_emails = len(result)
     all_breaches = set()
     for breaches in result.values():
-        all_breaches.update(breaches)
+        if isinstance(breaches, list):
+            for b in breaches:
+                all_breaches.add(str(b) if not isinstance(b, str) else b)
+        elif isinstance(breaches, str):
+            all_breaches.add(breaches)
 
     lines = [
         f"Found {total_emails} breached email(s) under {domain}",

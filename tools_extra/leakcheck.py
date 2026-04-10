@@ -297,7 +297,11 @@ def leakcheck_domain(domain: str, limit: int = 25) -> str:
         breach_names = [b[0] for b in breaches]
         all_fields = set()
         for _, fields in breaches:
-            all_fields.update(fields)
+            for f in fields:
+                if isinstance(f, str):
+                    all_fields.add(f)
+                else:
+                    all_fields.add(str(f))
         lines.append(f"  {email}")
         lines.append(f"    Breaches ({len(breaches)}): {', '.join(breach_names[:5])}")
         if len(breach_names) > 5:
