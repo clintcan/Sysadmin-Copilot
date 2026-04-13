@@ -310,4 +310,6 @@ The `docs/` folder contains a 9-chapter code walkthrough that explains every mod
 
 ## License
 
-MIT — Use it, modify it, share it with your Linux users group.
+MIT License — see [LICENSE](LICENSE) for full text.
+
+Copyright (c) 2026 Clint Canada. Use it, modify it, share it with your Linux users group — just keep the copyright notice.
