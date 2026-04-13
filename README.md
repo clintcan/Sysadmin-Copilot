@@ -230,11 +230,11 @@ WRITE_TOOLS = {"restart_container"}
 ```
 
 Rules:
-- Files must be `.py` and not start with `_`
+- Files must be `.py`, `.pyc`, or `.so` and not start with `_`
 - Each `@tool` function is registered automatically
 - A single file can contain any mix of read and write tools
 - Declare `WRITE_TOOLS = {"name1", "name2"}` for tools that need confirmation
-- See `tools_extra/_example.py` for a full template
+- See `tools_extra/_example.py` for a full template, or `docs/08-extending.md` for shipping compiled / obfuscated plugins
 
 ### Core tools
 

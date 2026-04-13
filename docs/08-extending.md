@@ -13,7 +13,9 @@ The fastest way to add custom tools. Files in `tools_extra/` are auto-discovered
 
 ### How it works
 
-At import time, `tools.py` scans `tools_extra/` recursively for `.py` files (skipping `_`-prefixed files and directories). Each file is loaded via `importlib`, and any `@tool`-decorated functions are collected and appended to `ALL_TOOLS`. An optional module-level `WRITE_TOOLS` set declares which tools need user confirmation.
+At import time, `tools.py` scans `tools_extra/` recursively for `.py`, `.pyc`, and `.so` files (skipping `_`-prefixed files and directories). Each file is loaded via `importlib`, and any `@tool`-decorated functions are collected and appended to `ALL_TOOLS`. An optional module-level `WRITE_TOOLS` set declares which tools need user confirmation.
+
+When the same module name appears in multiple formats (e.g., both `foo.py` and `foo.pyc`), the loader picks one in priority order: `.py` > `.pyc` > `.so`. Cpython tags in compiled filenames (e.g., `foo.cpython-311-x86_64-linux-gnu.so`, `foo.cpython-311.pyc`) are stripped — both register as module `foo`.
 
 ### Flat layout (simple)
 
@@ -66,16 +68,16 @@ Subfolders starting with `_` are skipped entirely (useful for templates or work-
 
 ### Plugin rules
 
-- Files must be `.py` and not start with `_` (the `_example.py` template is skipped)
+- Files must be `.py`, `.pyc`, or `.so` and not start with `_` (the `_example.py` template is skipped)
 - Directories starting with `_` are skipped entirely
 - Subfolders are scanned recursively — organize by category as needed
 - Each `@tool` function is auto-registered — no need to edit `ALL_TOOLS`
 - Import `run_cmd` from `tools` for subprocess execution
 - Declare `WRITE_TOOLS = {"tool_name"}` for tools that modify system state
-- Declare `REQUIRED_ENV = {"API_KEY"}` to skip the plugin when the env var is not set
-- Declare `REQUIRED_BINS = {"nmap"}` to skip the plugin when a binary is not installed
+- Declare `REQUIRED_ENV = {"API_KEY"}` to skip the plugin when the env var is not set (source `.py` only — see "Distributing compiled plugins" below)
+- Declare `REQUIRED_BINS = {"nmap"}` to skip the plugin when a binary is not installed (source `.py` only)
 - Errors in a plugin file are warned but don't crash startup
-- Plugins load in sorted path order (subfolders sorted alphabetically)
+- Plugins load in sorted module-name order
 
 ### Conditional loading (REQUIRED_ENV / REQUIRED_BINS)
 
@@ -167,6 +169,27 @@ WRITE_TOOLS = {"restart_container", "stop_container"}
 ```
 
 The agent will prompt `Allow this action? [y/N]` before executing any tool listed in `WRITE_TOOLS`, just like the core write tools. Tools not in the set are treated as read-only. If the write tool manages systemd services, those services still need to be in `ALLOWED_SERVICES` (in `safety.py` or via `EXTRA_SERVICES` env var) and in the sudoers file.
+
+### Distributing compiled plugins
+
+If you want to ship a plugin without source — for IP protection, license enforcement, or to discourage casual modification — the loader accepts three formats:
+
+| Format | How to produce | Pros | Cons |
+|--------|----------------|------|------|
+| `.py` (source) | Just write Python | Easiest; supports `REQUIRED_ENV` / `REQUIRED_BINS` gates | Source is readable |
+| `.pyc` (bytecode) | `python -m compileall plugin.py` then ship `__pycache__/plugin.cpython-XYZ.pyc` as `plugin.pyc` | No source, no extra deps | Tied to Python version (magic-number mismatch fails to load); trivially decompilable |
+| `.so` (compiled) | Build with [Cython](https://cython.org/) or [Nuitka](https://nuitka.net/) | Hardest to reverse | Per-Python-version + per-platform builds; loses easy-edit |
+| `.py` + PyArmor | Wrap with [PyArmor](https://pyarmor.readthedocs.io/) | Encryption, expiration, machine binding; loads as a normal `.py` | Commercial license for advanced features; ship the `pyarmor_runtime_*` package alongside |
+
+**Important:** `REQUIRED_ENV` and `REQUIRED_BINS` are read by parsing the source file before import. They are ignored for `.pyc` and `.so` files. For compiled plugins, check the requirements inside each tool function and return a clear error message instead — the plugin will still load, but tools that depend on missing config will fail gracefully when called.
+
+(A `.py` shim with the same module name as the compiled file won't work as a workaround — the loader picks one format per module name, and `.py` wins, so the shim would replace the compiled module rather than load alongside it.)
+
+**Tip for `.pyc`:** When `python -m compileall foo.py` produces `__pycache__/foo.cpython-311.pyc`, you can either:
+- Drop it directly into `tools_extra/` keeping the cpython tag (`foo.cpython-311.pyc`) — the loader strips the tag
+- Rename it to `foo.pyc` for cleanliness
+
+Both register as module `foo`. Same applies to `.so` files with cpython/platform tags.
 
 ### Plugin security model
 

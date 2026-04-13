@@ -10,6 +10,7 @@ To add a new tool:
   3. Add it to ALL_TOOLS at the bottom
 """
 
+import importlib.machinery
 import importlib.util
 import os
 import re
@@ -879,8 +880,13 @@ def _check_plugin_requirements(py_file, extra_dir):
     Requirements are parsed from the source file without importing,
     so unmet dependencies don't trigger import errors.
 
+    Compiled plugins (.pyc, .so) skip this check — declare gates in a sibling
+    .py shim if you need them.
+
     Returns (ok: bool, reason: str | None).
     """
+    if py_file.suffix != ".py":
+        return True, None
     try:
         with open(py_file) as f:
             source = f.read()
@@ -930,6 +936,10 @@ def _load_extra_tools() -> tuple[list, set]:
         tools_extra/network/scanner.py       (categorized)
         tools_extra/network/dns_tools.py     (categorized)
 
+    Plugin formats: source (.py), bytecode-only (.pyc), and compiled
+    extensions (.so). When multiple formats exist for the same module name,
+    .py wins, then .pyc, then .so.
+
     Plugins can gate loading via module-level constants:
         REQUIRED_ENV  = {"API_KEY"}      — skip if env var not set
         REQUIRED_BINS = {"nmap"}         — skip if binary not in PATH
@@ -946,26 +956,41 @@ def _load_extra_tools() -> tuple[list, set]:
     if not extra_dir.is_dir():
         return tools, write_tools
 
-    for py_file in sorted(extra_dir.glob("**/*.py")):
-        if any(part.startswith("_") for part in py_file.relative_to(extra_dir).parts):
-            continue
+    # Gather plugins from all supported formats. If the same module name
+    # appears as multiple formats, keep the highest-priority one.
+    candidates = {}  # module_name -> Path
+    priority = {".py": 0, ".pyc": 1, ".so": 2}
+    for ext in (".py", ".pyc", ".so"):
+        for f in extra_dir.glob(f"**/*{ext}"):
+            if any(part.startswith("_") for part in f.relative_to(extra_dir).parts):
+                continue
+            # Strip .cpython-3xx tags from .so / .pyc names so foo.cpython-311.so
+            # collapses to module name "foo".
+            stem = f.stem.split(".", 1)[0] if "." in f.stem else f.stem
+            rel_parts = f.relative_to(extra_dir.parent).parts[:-1] + (stem,)
+            module_name = ".".join(rel_parts)
+            existing = candidates.get(module_name)
+            if existing is None or priority[ext] < priority[existing.suffix]:
+                candidates[module_name] = f
 
+    for module_name, py_file in sorted(candidates.items()):
         rel_path = py_file.relative_to(extra_dir)
 
-        # Check requirements before importing
+        # Check requirements before importing (no-op for compiled formats)
         ok, reason = _check_plugin_requirements(py_file, extra_dir)
         if not ok:
             skipped.append((rel_path, reason))
             continue
 
-        # Build a unique module name from the relative path:
-        #   tools_extra/threat_intel.py       -> tools_extra.threat_intel
-        #   tools_extra/network/scanner.py    -> tools_extra.network.scanner
-        rel = py_file.relative_to(extra_dir.parent)
-        module_name = ".".join(rel.with_suffix("").parts)
-
         try:
-            spec = importlib.util.spec_from_file_location(module_name, py_file)
+            if py_file.suffix == ".pyc":
+                loader = importlib.machinery.SourcelessFileLoader(module_name, str(py_file))
+                spec = importlib.util.spec_from_loader(module_name, loader)
+            elif py_file.suffix == ".so":
+                loader = importlib.machinery.ExtensionFileLoader(module_name, str(py_file))
+                spec = importlib.util.spec_from_loader(module_name, loader)
+            else:
+                spec = importlib.util.spec_from_file_location(module_name, py_file)
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
         except Exception as e:

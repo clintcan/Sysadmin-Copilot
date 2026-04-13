@@ -5,12 +5,15 @@ Drop .py files into this directory to add custom tools at startup. The loader
 auto-discovers any @tool-decorated functions and registers them with the agent.
 
 Rules:
-  - Files must be .py and NOT start with '_' (this file is skipped)
+  - Files must be .py, .pyc, or .so and NOT start with '_' (this file is skipped)
   - Each @tool function becomes available to the agent automatically
   - Import run_cmd from tools if you need subprocess execution
   - A single file can contain any mix of read and write tools
   - Declare WRITE_TOOLS = {"tool_name", ...} for tools that need
     user confirmation before running
+
+For distributing plugins without source, see "Distributing compiled plugins"
+in docs/08-extending.md.
 
 Rename this file to example.py (remove the leading underscore) to activate it.
 """
