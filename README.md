@@ -289,11 +289,11 @@ Plugins are lazy-loaded — only plugins whose API keys are set will load. This 
 
 ## Documentation
 
-The `docs/` folder contains an 8-chapter code walkthrough that explains every module in depth — architecture, design decisions, and annotated snippets from the real source:
+The `docs/` folder contains an 9-chapter code walkthrough that explains every module in depth — architecture, design decisions, and annotated snippets from the real source:
 
 - [docs/README.md](docs/README.md) — table of contents
 - [01 — Introduction](docs/01-introduction.md) · [02 — Architecture](docs/02-architecture.md) · [03 — The Agent](docs/03-the-agent.md) · [04 — Tools](docs/04-tools.md)
-- [05 — Safety Layer](docs/05-safety-layer.md) · [06 — Audit Logger](docs/06-audit-logger.md) · [07 — Configuration](docs/07-configuration.md) · [08 — Extending](docs/08-extending.md)
+- [05 — Safety Layer](docs/05-safety-layer.md) · [06 — Audit Logger](docs/06-audit-logger.md) · [07 — Configuration](docs/07-configuration.md) · [08 — Extending](docs/08-extending.md) · [09 — Performance](docs/09-performance.md)
 
 ---
 

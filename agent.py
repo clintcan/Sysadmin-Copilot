@@ -70,12 +70,18 @@ def _calculate_max_history_chars(context_window, output_tokens):
     Budget: context_window - tool_definitions - system_prompt - output_tokens
     Convert remaining tokens to chars (* 4 chars/token estimate).
     """
-    tool_tokens = len(ALL_TOOLS) * 200
+    tool_tokens = len(ALL_TOOLS) * _TOKENS_PER_TOOL
     system_tokens = 500
     available = context_window - tool_tokens - system_tokens - output_tokens
     # Floor: enough for ~2 turns (one question + one tool result + one answer)
     min_history = min(2048, context_window // 4) * 4
     return max(min_history, available * 4)
+
+# Per-tool budget for context-window sizing. Measured against the live tool
+# registry with tiktoken cl100k_base — actual averages ~85 tokens per tool
+# (name + description + JSON args schema). 100 leaves ~15% headroom without
+# inflating num_ctx unnecessarily, which would slow down per-token inference.
+_TOKENS_PER_TOOL = 100
 
 # Maximum output tokens per provider. Ollama defaults are often too low (2048),
 # causing responses to cut off mid-sentence when summarizing large tool output.
@@ -227,7 +233,7 @@ def get_llm():
         except Exception:
             pass
 
-        tool_tokens = len(ALL_TOOLS) * 200
+        tool_tokens = len(ALL_TOOLS) * _TOKENS_PER_TOOL
         target_ctx = tool_tokens + 500 + 8192 + max_tokens  # tools + system + ~5 turns + output
 
         # RAM cap: limit KV cache to 40% of total RAM (leave room for model + OS)

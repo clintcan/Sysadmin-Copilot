@@ -30,3 +30,4 @@ If you prefer to learn by doing, start with Chapter 8 (adding a new tool) and re
 | 6 | [Audit Logger](06-audit-logger.md) | JSONL logging, status codes, in-session and past-session views |
 | 7 | [Configuration & Installation](07-configuration.md) | LLM providers, env vars, service account, `install.sh` |
 | 8 | [Extending: Add Your Own Tool](08-extending.md) | Full tutorial — write, register, and test a new tool |
+| 9 | [Performance Tuning](09-performance.md) | Why the REPL is slow, how to measure, and which knobs matter most |
