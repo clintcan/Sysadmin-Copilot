@@ -65,12 +65,34 @@ The `KV cache` line is the memory Ollama allocates up-front. Cutting `num_ctx` i
 The auto-sizer in `agent.py` targets `tool_tokens + system + 8K history + output`. For routine sysadmin Q&A you don't need 8K of history room. Override it:
 
 ```bash
-OLLAMA_NUM_CTX=8192 python agent.py
+OLLAMA_NUM_CTX=16384 python agent.py
 ```
 
-Rough impact: halving `num_ctx` halves the KV cache and roughly halves prefill time, which dominates latency on tool-heavy ReAct turns. Going from a default ~20K window to 8K typically yields **2–2.5× faster turns**.
+Rough impact: halving `num_ctx` halves the KV cache and roughly halves prefill time, which dominates latency on tool-heavy ReAct turns. Going from a default ~20K window to 16K typically yields **~25% faster turns** with no quality regression.
 
-If tools don't fit, the agent will print a warning at startup. For a 40-tool install, 8K is tight but workable; 10–12K is comfortable.
+#### Don't go below the reasoning floor
+
+It's tempting to push `num_ctx` as low as possible — 4K, 6K, 8K. **Don't.** When the context is too small, Ollama truncates from the front of the prompt, silently dropping the system prompt and early tool definitions. The model loses sight of tools it needs, picks wrong tools, or refuses to reason. It's not a compute problem — the model literally can't see the tool list anymore.
+
+The floor depends on your tool count. A realistic per-turn budget is:
+
+```
+tool schemas         + system prompt + output reserve + reasoning scratchpad + history
+~100 × tool count    +  ~500         +   4096         +  ~1500                +  ~2000
+```
+
+Recommended minimum `OLLAMA_NUM_CTX` by plugin load:
+
+| Tools loaded | Safe `OLLAMA_NUM_CTX` floor | Notes |
+|---|---|---|
+| 10–15 | 8,192 | Core tools only, most plugins disabled |
+| 20–30 | 12,288 | Core + a few plugins |
+| 30–40 | **16,384** | Core + most plugins (typical install) |
+| 40+ | 20,480+ | Heavy plugin load |
+
+If you set it lower and see the model making nonsensical tool choices ("I'll use `ping_host` to check disk space"), truncated reasoning, or outright refusal, the context floor is the first thing to check — raise it by 4K and see if quality returns.
+
+For bigger speedups without the quality cliff, combine a reasonable `num_ctx` with knobs #2–#4 below.
 
 ### 2. Drop unused plugins
 
@@ -153,17 +175,19 @@ Haiku and `gpt-4o-mini` are fast and inexpensive for sysadmin tool-calling workl
 
 ## Combining knobs — recommended starting points
 
+These assume a typical install with ~30–40 tools loaded. If you've trimmed plugins heavily, you can lower `OLLAMA_NUM_CTX` accordingly (see the floor table in §1).
+
 **Local Ollama, CPU-only, getting-started profile:**
 
 ```bash
-OLLAMA_MODEL=qwen3.5:2b OLLAMA_NUM_CTX=8192 MAX_OUTPUT_TOKENS=2048 \
+OLLAMA_MODEL=qwen3.5:2b OLLAMA_NUM_CTX=12288 MAX_OUTPUT_TOKENS=2048 \
     OLLAMA_KEEP_ALIVE=24h python agent.py
 ```
 
 **Local Ollama, GPU available:**
 
 ```bash
-OLLAMA_MODEL=llama3.1:8b OLLAMA_NUM_CTX=12288 \
+OLLAMA_MODEL=llama3.1:8b OLLAMA_NUM_CTX=16384 \
     OLLAMA_KEEP_ALIVE=24h python agent.py
 ```
 
@@ -183,7 +207,7 @@ Set performance env vars permanently in the service account's `.env`:
 
 ```bash
 sudo bash -c 'cat >> /opt/sysadmin-copilot/.env' <<'EOF'
-OLLAMA_NUM_CTX=8192
+OLLAMA_NUM_CTX=16384
 MAX_OUTPUT_TOKENS=2048
 OLLAMA_KEEP_ALIVE=24h
 EOF
