@@ -264,6 +264,7 @@ The safety and audit wrappers are applied automatically — no changes needed in
 | `ANTHROPIC_API_KEY` | — | Anthropic API key |
 | `MAX_OUTPUT_TOKENS` | per-provider | Maximum output tokens. Defaults: Ollama 4096, OpenAI 16384, Anthropic 8192. Overrides all providers when set |
 | `MAX_HISTORY_CHARS` | auto | Max conversation history in chars. Auto-calculated from model context window; override to set manually |
+| `TOOL_PROFILE` | `full` | Which core toolset to load: `minimal` (10 tools, for low-VRAM/small models), `standard` (20), `full` (27). Plugins load independently of the profile. See [Performance Tuning](docs/09-performance.md) |
 
 ### Safety & Permissions
 

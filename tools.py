@@ -1034,7 +1034,7 @@ def _load_extra_tools() -> tuple[list, set]:
 # TOOL REGISTRY
 # ═══════════════════════════════════════════════════════════════════════════════
 
-ALL_TOOLS = [
+_CORE_TOOLS_FULL = [
     # Log analysis
     query_journal_logs,
     read_log_file,
@@ -1076,6 +1076,70 @@ ALL_TOOLS = [
     run_command,
     search_web,
 ]
+
+# Profile subsets — select with TOOL_PROFILE env var.
+# Each profile is defined by tool *name* so the set survives refactors that
+# rename the Python identifiers.
+_PROFILE_TOOL_NAMES = {
+    # ~10 essentials for low-VRAM systems (2–4B models) or tight context budgets.
+    # Covers the "is the server up, what's broken, free up disk, restart service"
+    # workflow without overwhelming small models with rarely-used diagnostics.
+    "minimal": {
+        "query_journal_logs",
+        "check_disk_usage",
+        "check_memory",
+        "check_cpu_and_load",
+        "check_service_status",
+        "list_failed_services",
+        "restart_service",
+        "check_open_ports",
+        "ping_host",
+        "run_command",
+    },
+    # ~20 tools — drops niche diagnostics but keeps depth for most workflows.
+    "standard": {
+        "query_journal_logs",
+        "read_log_file",
+        "check_disk_usage",
+        "check_memory",
+        "check_cpu_and_load",
+        "check_top_processes",
+        "check_service_status",
+        "list_failed_services",
+        "restart_service",
+        "stop_service",
+        "check_open_ports",
+        "check_network_connections",
+        "ping_host",
+        "dns_lookup",
+        "check_url_health",
+        "check_logged_in_users",
+        "system_audit",
+        "check_outdated_packages",
+        "change_directory",
+        "run_command",
+    },
+    # "full" = every core tool (no filter applied); this key is informational only.
+}
+
+_TOOL_PROFILE = os.environ.get("TOOL_PROFILE", "full").lower()
+if _TOOL_PROFILE in _PROFILE_TOOL_NAMES:
+    _allowed = _PROFILE_TOOL_NAMES[_TOOL_PROFILE]
+    ALL_TOOLS = [t for t in _CORE_TOOLS_FULL if t.name in _allowed]
+    _dropped = len(_CORE_TOOLS_FULL) - len(ALL_TOOLS)
+    print(
+        f"\033[90mTOOL_PROFILE={_TOOL_PROFILE}: loaded {len(ALL_TOOLS)} core tool(s), "
+        f"{_dropped} dropped. Plugins from tools_extra/ load independently.\033[0m"
+    )
+elif _TOOL_PROFILE != "full":
+    valid = ", ".join(sorted(set(_PROFILE_TOOL_NAMES) | {"full"}))
+    print(
+        f"\033[33m[WARNING] Unknown TOOL_PROFILE='{_TOOL_PROFILE}'. "
+        f"Valid: {valid}. Using 'full'.\033[0m"
+    )
+    ALL_TOOLS = list(_CORE_TOOLS_FULL)
+else:
+    ALL_TOOLS = list(_CORE_TOOLS_FULL)
 
 # Auto-discover plugins from tools_extra/
 EXTRA_TOOLS, EXTRA_WRITE_TOOLS = _load_extra_tools()

@@ -92,9 +92,27 @@ Recommended minimum `OLLAMA_NUM_CTX` by plugin load:
 
 If you set it lower and see the model making nonsensical tool choices ("I'll use `ping_host` to check disk space"), truncated reasoning, or outright refusal, the context floor is the first thing to check — raise it by 4K and see if quality returns.
 
-For bigger speedups without the quality cliff, combine a reasonable `num_ctx` with knobs #2–#4 below.
+For bigger speedups without the quality cliff, combine a reasonable `num_ctx` with knobs #2–#5 below.
 
-### 2. Drop unused plugins
+### 2. Select a smaller core toolset with `TOOL_PROFILE`
+
+For low-VRAM systems or small models (2–4B parameters), the full 27-tool core is overkill and eats context. Three profiles are built in:
+
+| `TOOL_PROFILE` | Core tools | Use case |
+|---|---|---|
+| `minimal` | 10 | Low-VRAM, small models, tight context — "is it up, what's broken, restart it" workflows |
+| `standard` | 20 | Middle ground — drops niche diagnostics (zombies, cron jobs, dmesg, directory-size, URL health) |
+| `full` (default) | 27 | Current behavior — everything |
+
+```bash
+TOOL_PROFILE=minimal OLLAMA_MODEL=qwen3.5:2b OLLAMA_NUM_CTX=8192 python agent.py
+```
+
+The `minimal` profile is the key that unlocks aggressive `OLLAMA_NUM_CTX` settings without running into the reasoning floor described above — with 10 tools + 0 plugins, `8192` is genuinely comfortable.
+
+Plugins from `tools_extra/` load independently of the profile, so `TOOL_PROFILE=minimal` with API keys set will still register the threat-intel plugins.
+
+### 3. Drop unused plugins
 
 Each plugin you remove (or move to `tools_extra/_unused/`) saves ~85 tokens shipped per turn and ~100 tokens of allocated context budget (per the `_TOKENS_PER_TOOL` constant in `agent.py`). Skipping 6–8 unused plugins typically removes another ~10% of context pressure.
 
@@ -103,17 +121,17 @@ Two zero-code ways to shrink the plugin set:
 - **Leave API keys unset.** Plugins with `REQUIRED_ENV` (threat intel, breach lookup) self-skip when their keys aren't in the environment.
 - **Underscore-rename.** `mv tools_extra/foo.py tools_extra/_foo.py` — the loader skips any file or directory starting with `_`.
 
-### 3. Switch to a smaller model
+### 4. Switch to a smaller model
 
 On CPU-only hardware, the model is the largest single cost. For routine sysadmin queries, 2–4B parameter models are often enough:
 
 ```bash
-OLLAMA_MODEL=qwen3.5:2b OLLAMA_NUM_CTX=8192 python agent.py
+TOOL_PROFILE=minimal OLLAMA_MODEL=qwen3.5:2b OLLAMA_NUM_CTX=8192 python agent.py
 ```
 
-Typical speedup from `llama3.1:8b` → a 2B model: **3–5×** on a tool-heavy prompt. Quality of tool selection degrades noticeably below ~3B for complex multi-step tasks; test with queries that matter to you.
+Typical speedup from `llama3.1:8b` → a 2B model: **3–5×** on a tool-heavy prompt. Quality of tool selection degrades noticeably below ~3B for complex multi-step tasks; test with queries that matter to you. Pairing a small model with `TOOL_PROFILE=minimal` keeps tool-selection quality high because the model has fewer options to confuse.
 
-### 4. Cap `MAX_OUTPUT_TOKENS`
+### 5. Cap `MAX_OUTPUT_TOKENS`
 
 Sysadmin answers rarely need 4K tokens of response — most are "here's what the command showed; the disk is 78% full." Lowering the cap both shortens generation and shrinks `target_ctx` (the formula reserves output tokens up-front):
 
@@ -123,7 +141,7 @@ MAX_OUTPUT_TOKENS=2048 python agent.py
 
 Provider defaults: Ollama 4096, OpenAI 16384, Anthropic 8192 (`agent.py:84`).
 
-### 5. GPU offload (Ollama)
+### 6. GPU offload (Ollama)
 
 If you have a GPU but it's not being used, force offload:
 
@@ -139,7 +157,7 @@ ollama ps
 
 The `PROCESSOR` column shows `100% GPU`, `30%/70% CPU/GPU`, or `100% CPU`. If the model doesn't fit entirely on GPU, a smaller model or smaller `num_ctx` lets more of it offload.
 
-### 6. Keep the model warm
+### 7. Keep the model warm
 
 Ollama unloads idle models after 5 minutes, so the first question after a coffee break pays a full model reload. Set:
 
@@ -149,17 +167,17 @@ export OLLAMA_KEEP_ALIVE=24h
 
 (in your shell, the service account's `.env`, or `/etc/systemd/system/ollama.service.d/override.conf` if you run Ollama via systemd).
 
-### 7. Use `raw` mode
+### 8. Use `raw` mode
 
 Inside the REPL, type `raw` to toggle raw output mode. In raw mode the agent shows you the tool's output directly and skips the summarization/interpretation LLM pass. That cuts one full LLM round-trip per question — best for "just show me the data" queries where you don't need a written summary.
 
 Type `raw` again to toggle back.
 
-### 8. Shorten tool docstrings
+### 9. Shorten tool docstrings
 
 Every word in a tool's docstring goes into every prompt. The shipped plugins use verbose docstrings for clarity; if you're token-constrained on a small model, trimming them to 1–2 sentences can save hundreds of tokens across the tool list. Keep enough that the LLM still picks the right tool for ambiguous questions.
 
-### 9. Swap to a cloud provider for heavy prompts
+### 10. Swap to a cloud provider for heavy prompts
 
 When the prompt is large (many tools, long history), cloud inference often beats local CPU inference even after network round-trip:
 
@@ -177,10 +195,19 @@ Haiku and `gpt-4o-mini` are fast and inexpensive for sysadmin tool-calling workl
 
 These assume a typical install with ~30–40 tools loaded. If you've trimmed plugins heavily, you can lower `OLLAMA_NUM_CTX` accordingly (see the floor table in §1).
 
+**Low-VRAM / small-model profile (2–4 GB free):**
+
+```bash
+TOOL_PROFILE=minimal OLLAMA_MODEL=qwen3.5:2b \
+    OLLAMA_NUM_CTX=8192 MAX_OUTPUT_TOKENS=2048 \
+    OLLAMA_KEEP_ALIVE=24h python agent.py
+```
+
 **Local Ollama, CPU-only, getting-started profile:**
 
 ```bash
-OLLAMA_MODEL=qwen3.5:2b OLLAMA_NUM_CTX=12288 MAX_OUTPUT_TOKENS=2048 \
+TOOL_PROFILE=standard OLLAMA_MODEL=qwen3.5:2b \
+    OLLAMA_NUM_CTX=12288 MAX_OUTPUT_TOKENS=2048 \
     OLLAMA_KEEP_ALIVE=24h python agent.py
 ```
 
